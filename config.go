@@ -46,19 +46,24 @@ type ProxyEntry struct {
 	HostKey  string `yaml:"host_key"`
 }
 
-// RouteEntry describes where/how to handle a matched session.
-// Either Proxy or Cmd must be set.
-type RouteEntry struct {
-	// Username is a list of SSH usernames or shell-style patterns that trigger this route.
+type MatchEntry struct {
 	Username StringOrSlice `yaml:"username"`
-	// Role restricts the route to users that have been granted this role.
-	Role string `yaml:"role"`
+	Role     string        `yaml:"role"`
+	Cmd      string        `yaml:"cmd"`
+}
+
+type RunEntry struct {
+	Cmd string `yaml:"cmd"`
+	Pty bool   `yaml:"pty"`
+}
+
+// RouteEntry describes where/how to handle a matched session.
+// Either Proxy or Run must be set.
+type RouteEntry struct {
+	Match MatchEntry `yaml:"match"`
+	Run   RunEntry   `yaml:"run"`
 	// Proxy forwards the session to another SSH server.
 	Proxy ProxyEntry `yaml:"proxy"`
-	// Cmd is a shell command to execute for the session.
-	Cmd string `yaml:"cmd"`
-	// Pty runs Cmd inside a real PTY. Use this for full-screen terminal apps.
-	Pty bool `yaml:"pty"`
 }
 
 // Config is the top-level configuration structure.

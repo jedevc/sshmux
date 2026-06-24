@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path"
+	"regexp"
 	"slices"
 	"syscall"
 	"time"
@@ -52,6 +53,7 @@ func run() error {
 		wish.WithHostKeyPath(".ssh/id_ed25519"),
 		ssh.AllocatePty(),
 		withAuth(cfg),
+		withSessionRoutingPolicy(cfg),
 		wish.WithMiddleware(
 			muxMiddleware(cfg),
 			logging.Middleware(),
@@ -89,6 +91,15 @@ func run() error {
 	return nil
 }
 
+func withSessionRoutingPolicy(cfg *Config) ssh.Option {
+	return func(srv *ssh.Server) error {
+		srv.SessionRequestCallback = func(s ssh.Session, _ string) bool {
+			return findRoute(cfg, s.User(), G(s.Context()), s.RawCommand()) != nil
+		}
+		return nil
+	}
+}
+
 func withAuth(cfg *Config) ssh.Option {
 	return func(s *ssh.Server) error {
 		s.ServerConfigCallback = func(ctx ssh.Context) *gossh.ServerConfig {
@@ -111,11 +122,11 @@ func authCallbacks(ctx ssh.Context, cfg *Config, username string) (gossh.ServerA
 	public := false
 	matched := false
 	for _, route := range cfg.Routes {
-		if !matchesUsername([]string(route.Username), username) {
+		if !matchesUsername([]string(route.Match.Username), username) {
 			continue
 		}
 		matched = true
-		if route.Role == "" {
+		if route.Match.Role == "" {
 			public = true
 			break
 		}
@@ -126,7 +137,8 @@ func authCallbacks(ctx ssh.Context, cfg *Config, username string) (gossh.ServerA
 
 	callbacks := gossh.ServerAuthCallbacks{
 		PublicKeyCallback: func(_ gossh.ConnMetadata, key gossh.PublicKey) (*gossh.Permissions, error) {
-			if !applyRoles(ctx, publicKeyRoles(cfg, key)) {
+			roles := publicKeyRoles(cfg, key)
+			if !canReachRoute(cfg, username, roles) || !applyRoles(ctx, roles) {
 				return nil, fmt.Errorf("permission denied")
 			}
 			return publicKeyPermissions(key), nil
@@ -134,7 +146,8 @@ func authCallbacks(ctx ssh.Context, cfg *Config, username string) (gossh.ServerA
 	}
 	if passwordAllowedForUsername(cfg, username) {
 		callbacks.PasswordCallback = func(_ gossh.ConnMetadata, password []byte) (*gossh.Permissions, error) {
-			if !applyRoles(ctx, passwordRoles(cfg, string(password))) {
+			roles := passwordRoles(cfg, string(password))
+			if !canReachRoute(cfg, username, roles) || !applyRoles(ctx, roles) {
 				return nil, fmt.Errorf("permission denied")
 			}
 			return &gossh.Permissions{}, nil
@@ -196,10 +209,10 @@ func passwordAllowedForUsername(cfg *Config, username string) bool {
 		return false
 	}
 	for _, route := range cfg.Routes {
-		if !matchesUsername([]string(route.Username), username) {
+		if !matchesUsername([]string(route.Match.Username), username) {
 			continue
 		}
-		if route.Role != "" && slices.Contains(passwordRoles, route.Role) {
+		if route.Match.Role != "" && slices.Contains(passwordRoles, route.Match.Role) {
 			return true
 		}
 	}
@@ -227,6 +240,15 @@ func matchPassword(stored string, password string) bool {
 	return false
 }
 
+func canReachRoute(cfg *Config, username string, roles []string) bool {
+	for _, route := range cfg.Routes {
+		if matchesRouteAuth(route, username, roles) {
+			return true
+		}
+	}
+	return false
+}
+
 // muxMiddleware returns a wish.Middleware that routes each session based on
 // the config's routes list.
 func muxMiddleware(cfg *Config) wish.Middleware {
@@ -235,21 +257,19 @@ func muxMiddleware(cfg *Config) wish.Middleware {
 			username := s.User()
 			roles := G(s.Context())
 
-			for _, route := range cfg.Routes {
-				if !matchesRoute(route, username, roles) {
-					continue
-				}
+			route := findRoute(cfg, username, roles, s.RawCommand())
+			if route != nil {
 				if route.Proxy.Host != "" {
-					if err := proxySession(s, route); err != nil {
+					if err := proxySession(s, *route); err != nil {
 						log.Error("Proxy error", "addr", route.Proxy.Host, "error", err)
 						_, _ = fmt.Fprintf(s.Stderr(), "proxy error: %v\r\n", err)
 						_ = s.Exit(exitCode(err))
 					}
 					return
 				}
-				if route.Cmd != "" {
-					if err := runCmd(s, route.Cmd, route.Pty); err != nil {
-						log.Error("Command error", "cmd", route.Cmd, "error", err)
+				if route.Run.Cmd != "" {
+					if err := runCmd(s, route.Run.Cmd, route.Run.Pty); err != nil {
+						log.Error("Command error", "cmd", route.Run.Cmd, "error", err)
 						_ = s.Exit(exitCode(err))
 						return
 					}
@@ -258,20 +278,39 @@ func muxMiddleware(cfg *Config) wish.Middleware {
 				}
 			}
 
-			_, _ = fmt.Fprintf(s.Stderr(), "no route matched\r\n")
 			_ = s.Exit(1)
 		}
 	}
 }
 
-// matchesRoute checks whether a session (identified by username and roles)
-// matches a given route entry.
-func matchesRoute(route RouteEntry, username string, roles []string) bool {
-	if !matchesUsername([]string(route.Username), username) {
+func findRoute(cfg *Config, username string, roles []string, rawCommand string) *RouteEntry {
+	for i := range cfg.Routes {
+		if matchesRouteSession(cfg.Routes[i], username, roles, rawCommand) {
+			return &cfg.Routes[i]
+		}
+	}
+	return nil
+}
+
+func matchesRouteAuth(route RouteEntry, username string, roles []string) bool {
+	if !matchesUsername([]string(route.Match.Username), username) {
 		return false
 	}
-	if route.Role != "" && !slices.Contains(roles, route.Role) {
+	if route.Match.Role != "" && !slices.Contains(roles, route.Match.Role) {
 		return false
+	}
+	return true
+}
+
+func matchesRouteSession(route RouteEntry, username string, roles []string, rawCommand string) bool {
+	if !matchesRouteAuth(route, username, roles) {
+		return false
+	}
+	if route.Match.Cmd != "" {
+		matched, err := regexp.MatchString(route.Match.Cmd, rawCommand)
+		if err != nil || !matched {
+			return false
+		}
 	}
 	return true
 }

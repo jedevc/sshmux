@@ -28,9 +28,10 @@ func TestExecSimpleCmd(t *testing.T) {
 		Auth: []AuthEntry{
 			{Fingerprint: fp, Role: StringOrSlice{"user"}},
 		},
-		Routes: []RouteEntry{
-			{Username: StringOrSlice{"alice"}, Role: "user", Cmd: "echo hello-world"},
-		},
+		Routes: []RouteEntry{{
+			Match: MatchEntry{Username: StringOrSlice{"alice"}, Role: "user"},
+			Run:   RunEntry{Cmd: "echo hello-world"},
+		}},
 	}
 
 	ts := newTestServer(t, cfg)
@@ -50,9 +51,10 @@ func TestExecSimpleCmdWithPTY(t *testing.T) {
 		Auth: []AuthEntry{
 			{Fingerprint: fp, Role: StringOrSlice{"user"}},
 		},
-		Routes: []RouteEntry{
-			{Username: StringOrSlice{"slides"}, Role: "user", Cmd: "printf 'slide output'"},
-		},
+		Routes: []RouteEntry{{
+			Match: MatchEntry{Username: StringOrSlice{"slides"}, Role: "user"},
+			Run:   RunEntry{Cmd: "printf 'slide output'"},
+		}},
 	}
 
 	ts := newTestServer(t, cfg)
@@ -72,9 +74,10 @@ func TestExecConfiguredPTY(t *testing.T) {
 		Auth: []AuthEntry{
 			{Fingerprint: fp, Role: StringOrSlice{"admin"}},
 		},
-		Routes: []RouteEntry{
-			{Username: StringOrSlice{"editor"}, Role: "admin", Cmd: "printf 'pty output'", Pty: true},
-		},
+		Routes: []RouteEntry{{
+			Match: MatchEntry{Username: StringOrSlice{"editor"}, Role: "admin"},
+			Run:   RunEntry{Cmd: "printf 'pty output'", Pty: true},
+		}},
 	}
 
 	ts := newTestServer(t, cfg)
@@ -93,9 +96,10 @@ func TestExecMatchedByRawKey(t *testing.T) {
 		Auth: []AuthEntry{
 			{Key: pubLine, Role: StringOrSlice{"user"}},
 		},
-		Routes: []RouteEntry{
-			{Username: StringOrSlice{"bob"}, Cmd: "printf 'key-matched'"},
-		},
+		Routes: []RouteEntry{{
+			Match: MatchEntry{Username: StringOrSlice{"bob"}},
+			Run:   RunEntry{Cmd: "printf 'key-matched'"},
+		}},
 	}
 
 	ts := newTestServer(t, cfg)
@@ -111,9 +115,10 @@ func TestExecMatchedByPassword(t *testing.T) {
 		Auth: []AuthEntry{
 			{Password: "secret", Role: StringOrSlice{"user"}},
 		},
-		Routes: []RouteEntry{
-			{Username: StringOrSlice{"password-user"}, Role: "user", Cmd: "printf 'password-matched'"},
-		},
+		Routes: []RouteEntry{{
+			Match: MatchEntry{Username: StringOrSlice{"password-user"}, Role: "user"},
+			Run:   RunEntry{Cmd: "printf 'password-matched'"},
+		}},
 	}
 
 	ts := newTestServer(t, cfg)
@@ -129,9 +134,10 @@ func TestPasswordAuthNotAdvertisedForKeyOnlyRoute(t *testing.T) {
 		Auth: []AuthEntry{
 			{Password: "secret", Role: StringOrSlice{"user"}},
 		},
-		Routes: []RouteEntry{
-			{Username: StringOrSlice{"admin"}, Role: "admin", Cmd: "printf 'admin'"},
-		},
+		Routes: []RouteEntry{{
+			Match: MatchEntry{Username: StringOrSlice{"admin"}, Role: "admin"},
+			Run:   RunEntry{Cmd: "printf 'admin'"},
+		}},
 	}
 
 	ts := newTestServer(t, cfg)
@@ -147,9 +153,10 @@ func TestExecMatchedByHashedPassword(t *testing.T) {
 		Auth: []AuthEntry{
 			{Password: "{SHA}5en6G6MezRroT3XKqkdPOmY/BfQ=", Role: StringOrSlice{"user"}},
 		},
-		Routes: []RouteEntry{
-			{Username: StringOrSlice{"password-user"}, Role: "user", Cmd: "printf 'hashed-password-matched'"},
-		},
+		Routes: []RouteEntry{{
+			Match: MatchEntry{Username: StringOrSlice{"password-user"}, Role: "user"},
+			Run:   RunEntry{Cmd: "printf 'hashed-password-matched'"},
+		}},
 	}
 
 	ts := newTestServer(t, cfg)
@@ -169,9 +176,10 @@ func TestExecWildcardUsername(t *testing.T) {
 		Auth: []AuthEntry{
 			{Fingerprint: fp, Role: StringOrSlice{"user"}},
 		},
-		Routes: []RouteEntry{
-			{Username: StringOrSlice{"slide-*"}, Role: "user", Cmd: "printf 'wildcard-matched'"},
-		},
+		Routes: []RouteEntry{{
+			Match: MatchEntry{Username: StringOrSlice{"slide-*"}, Role: "user"},
+			Run:   RunEntry{Cmd: "printf 'wildcard-matched'"},
+		}},
 	}
 
 	ts := newTestServer(t, cfg)
@@ -184,9 +192,10 @@ func TestExecWildcardUsername(t *testing.T) {
 
 func TestExecPublicRoute(t *testing.T) {
 	cfg := &Config{
-		Routes: []RouteEntry{
-			{Username: StringOrSlice{"guest"}, Cmd: "echo anyone-welcome"},
-		},
+		Routes: []RouteEntry{{
+			Match: MatchEntry{Username: StringOrSlice{"guest"}},
+			Run:   RunEntry{Cmd: "echo anyone-welcome"},
+		}},
 	}
 
 	ts := newTestServer(t, cfg)
@@ -202,9 +211,10 @@ func TestPasswordAuthNotAdvertisedForPublicRoute(t *testing.T) {
 		Auth: []AuthEntry{
 			{Password: "secret", Role: StringOrSlice{"user"}},
 		},
-		Routes: []RouteEntry{
-			{Username: StringOrSlice{"guest"}, Cmd: "printf 'public'"},
-		},
+		Routes: []RouteEntry{{
+			Match: MatchEntry{Username: StringOrSlice{"guest"}},
+			Run:   RunEntry{Cmd: "printf 'public'"},
+		}},
 	}
 
 	ts := newTestServer(t, cfg)
@@ -224,9 +234,10 @@ func TestExecNoMatchingRoute(t *testing.T) {
 		Auth: []AuthEntry{
 			{Fingerprint: fp, Role: StringOrSlice{"user"}},
 		},
-		Routes: []RouteEntry{
-			{Username: StringOrSlice{"alice"}, Cmd: "echo hi"},
-		},
+		Routes: []RouteEntry{{
+			Match: MatchEntry{Username: StringOrSlice{"alice"}},
+			Run:   RunEntry{Cmd: "echo hi"},
+		}},
 	}
 
 	ts := newTestServer(t, cfg)
@@ -245,9 +256,10 @@ func TestExecRoleRestrictionAllowed(t *testing.T) {
 		Auth: []AuthEntry{
 			{Fingerprint: fp, Role: StringOrSlice{"admin"}},
 		},
-		Routes: []RouteEntry{
-			{Username: StringOrSlice{"admin"}, Role: "admin", Cmd: "echo admin-only"},
-		},
+		Routes: []RouteEntry{{
+			Match: MatchEntry{Username: StringOrSlice{"admin"}, Role: "admin"},
+			Run:   RunEntry{Cmd: "echo admin-only"},
+		}},
 	}
 
 	ts := newTestServer(t, cfg)
@@ -267,9 +279,10 @@ func TestExecRoleRestrictionDenied(t *testing.T) {
 		Auth: []AuthEntry{
 			{Fingerprint: fp, Role: StringOrSlice{"user"}},
 		},
-		Routes: []RouteEntry{
-			{Username: StringOrSlice{"admin"}, Role: "admin", Cmd: "echo admin-only"},
-		},
+		Routes: []RouteEntry{{
+			Match: MatchEntry{Username: StringOrSlice{"admin"}, Role: "admin"},
+			Run:   RunEntry{Cmd: "echo admin-only"},
+		}},
 	}
 
 	ts := newTestServer(t, cfg)
@@ -288,9 +301,10 @@ func TestExecCmdExitCode(t *testing.T) {
 		Auth: []AuthEntry{
 			{Fingerprint: fp, Role: StringOrSlice{"user"}},
 		},
-		Routes: []RouteEntry{
-			{Username: StringOrSlice{"alice"}, Cmd: "exit 42"},
-		},
+		Routes: []RouteEntry{{
+			Match: MatchEntry{Username: StringOrSlice{"alice"}},
+			Run:   RunEntry{Cmd: "exit 42"},
+		}},
 	}
 
 	ts := newTestServer(t, cfg)
@@ -310,8 +324,8 @@ func TestExecMultipleRoutes(t *testing.T) {
 			{Fingerprint: fp, Role: StringOrSlice{"user", "admin"}},
 		},
 		Routes: []RouteEntry{
-			{Username: StringOrSlice{"alice"}, Role: "admin", Cmd: "echo first"},
-			{Username: StringOrSlice{"alice"}, Role: "user", Cmd: "echo second"},
+			{Match: MatchEntry{Username: StringOrSlice{"alice"}, Role: "admin"}, Run: RunEntry{Cmd: "echo first"}},
+			{Match: MatchEntry{Username: StringOrSlice{"alice"}, Role: "user"}, Run: RunEntry{Cmd: "echo second"}},
 		},
 	}
 
@@ -324,6 +338,58 @@ func TestExecMultipleRoutes(t *testing.T) {
 	assert.NotContains(t, stdout, "second")
 }
 
+func TestExecCommandMatch(t *testing.T) {
+	dir := t.TempDir()
+	privKey, pubLine := generateKey(t, dir, "client")
+	fp := fingerprintFromPub(t, pubLine)
+
+	cfg := &Config{
+		Auth: []AuthEntry{
+			{Fingerprint: fp, Role: StringOrSlice{"user"}},
+		},
+		Routes: []RouteEntry{
+			{
+				Match: MatchEntry{Username: StringOrSlice{"foo"}, Role: "user", Cmd: `^cmd foo\b`},
+				Run:   RunEntry{Cmd: "printf 'matched command'"},
+			},
+			{
+				Match: MatchEntry{Username: StringOrSlice{"foo"}, Role: "user"},
+				Run:   RunEntry{Cmd: "printf 'fallback'"},
+			},
+		},
+	}
+
+	ts := newTestServer(t, cfg)
+	defer ts.stop()
+
+	stdout, _, code := sshRun(t, ts, privKey, "foo", "cmd foo bar")
+	assert.Equal(t, 0, code)
+	assert.Equal(t, "matched command", stdout)
+}
+
+func TestExecCommandMismatchRejected(t *testing.T) {
+	dir := t.TempDir()
+	privKey, pubLine := generateKey(t, dir, "client")
+	fp := fingerprintFromPub(t, pubLine)
+
+	cfg := &Config{
+		Auth: []AuthEntry{
+			{Fingerprint: fp, Role: StringOrSlice{"user"}},
+		},
+		Routes: []RouteEntry{{
+			Match: MatchEntry{Username: StringOrSlice{"foo"}, Role: "user", Cmd: `^talk$`},
+			Run:   RunEntry{Cmd: "printf 'talk'"},
+		}},
+	}
+
+	ts := newTestServer(t, cfg)
+	defer ts.stop()
+
+	_, stderr, code := sshRun(t, ts, privKey, "foo", "not-talk")
+	assert.NotEqual(t, 0, code)
+	assert.Contains(t, stderr, "exec request failed")
+}
+
 func TestProxyWithBackendPassword(t *testing.T) {
 	backend := newBackendServer(t, backendAuth{password: "backend-secret"})
 	defer backend.stop()
@@ -331,7 +397,7 @@ func TestProxyWithBackendPassword(t *testing.T) {
 	cfg := &Config{
 		Routes: []RouteEntry{
 			{
-				Username: StringOrSlice{"proxy-user"},
+				Match: MatchEntry{Username: StringOrSlice{"proxy-user"}},
 				Proxy: ProxyEntry{
 					Host:     backend.addr,
 					Password: "backend-secret",
@@ -357,7 +423,7 @@ func TestProxyWithBackendKey(t *testing.T) {
 	cfg := &Config{
 		Routes: []RouteEntry{
 			{
-				Username: StringOrSlice{"proxy-user"},
+				Match: MatchEntry{Username: StringOrSlice{"proxy-user"}},
 				Proxy: ProxyEntry{
 					Host: backend.addr,
 					Key:  proxyKey,
@@ -381,7 +447,7 @@ func TestProxyWithPinnedHostKey(t *testing.T) {
 	cfg := &Config{
 		Routes: []RouteEntry{
 			{
-				Username: StringOrSlice{"proxy-user"},
+				Match: MatchEntry{Username: StringOrSlice{"proxy-user"}},
 				Proxy: ProxyEntry{
 					Host:     backend.addr,
 					Password: "backend-secret",
@@ -483,6 +549,7 @@ func newTestServer(t *testing.T, cfg *Config) *testServer {
 		wish.WithHostKeyPath(hostKey),
 		ssh.AllocatePty(),
 		withAuth(cfg),
+		withSessionRoutingPolicy(cfg),
 		wish.WithMiddleware(
 			muxMiddleware(cfg),
 			logging.Middleware(),
