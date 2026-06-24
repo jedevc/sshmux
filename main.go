@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"path"
 	"regexp"
 	"slices"
 	"syscall"
@@ -122,7 +121,7 @@ func authCallbacks(ctx ssh.Context, cfg *Config, username string) (gossh.ServerA
 	public := false
 	matched := false
 	for _, route := range cfg.Routes {
-		if !matchesUsername([]string(route.Match.Username), username) {
+		if !route.Match.Username.Match(username) {
 			continue
 		}
 		matched = true
@@ -209,7 +208,7 @@ func passwordAllowedForUsername(cfg *Config, username string) bool {
 		return false
 	}
 	for _, route := range cfg.Routes {
-		if !matchesUsername([]string(route.Match.Username), username) {
+		if !route.Match.Username.Match(username) {
 			continue
 		}
 		if route.Match.Role != "" && slices.Contains(passwordRoles, route.Match.Role) {
@@ -293,7 +292,7 @@ func findRoute(cfg *Config, username string, roles []string, rawCommand string) 
 }
 
 func matchesRouteAuth(route RouteEntry, username string, roles []string) bool {
-	if !matchesUsername([]string(route.Match.Username), username) {
+	if !route.Match.Username.Match(username) {
 		return false
 	}
 	if route.Match.Role != "" && !slices.Contains(roles, route.Match.Role) {
@@ -313,16 +312,6 @@ func matchesRouteSession(route RouteEntry, username string, roles []string, rawC
 		}
 	}
 	return true
-}
-
-func matchesUsername(patterns []string, username string) bool {
-	for _, pattern := range patterns {
-		matched, err := path.Match(pattern, username)
-		if err == nil && matched {
-			return true
-		}
-	}
-	return false
 }
 
 // runCmd executes the configured command for the session.

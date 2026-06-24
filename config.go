@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path"
+	"regexp"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -27,6 +30,84 @@ func (s *StringOrSlice) UnmarshalYAML(value *yaml.Node) error {
 	return nil
 }
 
+type Pattern struct {
+	AllowRegexp []*regexp.Regexp
+	DenyRegexp  []*regexp.Regexp
+	Allow       []string
+	Deny        []string
+}
+
+func (p *Pattern) UnmarshalYAML(value *yaml.Node) error {
+	var parts StringOrSlice
+	if err := parts.UnmarshalYAML(value); err != nil {
+		return err
+	}
+	parsed, err := parsePattern([]string(parts))
+	if err != nil {
+		return err
+	}
+	*p = parsed
+	return nil
+}
+
+func parsePattern(parts []string) (Pattern, error) {
+	var pattern Pattern
+	for _, part := range parts {
+		deny := strings.HasPrefix(part, "!")
+		if deny {
+			part = strings.TrimPrefix(part, "!")
+		}
+		if strings.HasPrefix(part, "/") && strings.HasSuffix(part, "/") && len(part) >= 2 {
+			re, err := regexp.Compile(strings.TrimSuffix(strings.TrimPrefix(part, "/"), "/"))
+			if err != nil {
+				return Pattern{}, fmt.Errorf("compile pattern %q: %w", part, err)
+			}
+			if deny {
+				pattern.DenyRegexp = append(pattern.DenyRegexp, re)
+			} else {
+				pattern.AllowRegexp = append(pattern.AllowRegexp, re)
+			}
+			continue
+		}
+		if deny {
+			pattern.Deny = append(pattern.Deny, part)
+		} else {
+			pattern.Allow = append(pattern.Allow, part)
+		}
+	}
+	return pattern, nil
+}
+
+func (p Pattern) Match(value string) bool {
+	for _, deny := range p.Deny {
+		if matchGlob(deny, value) {
+			return false
+		}
+	}
+	for _, deny := range p.DenyRegexp {
+		if deny.MatchString(value) {
+			return false
+		}
+	}
+	hasAllow := len(p.Allow) > 0 || len(p.AllowRegexp) > 0
+	for _, allow := range p.Allow {
+		if matchGlob(allow, value) {
+			return true
+		}
+	}
+	for _, allow := range p.AllowRegexp {
+		if allow.MatchString(value) {
+			return true
+		}
+	}
+	return !hasAllow
+}
+
+func matchGlob(pattern string, value string) bool {
+	matched, err := path.Match(pattern, value)
+	return err == nil && matched
+}
+
 // AuthEntry matches an authentication method to a set of roles.
 type AuthEntry struct {
 	// Fingerprint is a SHA256 public-key fingerprint, e.g. "SHA256:..."
@@ -47,9 +128,9 @@ type ProxyEntry struct {
 }
 
 type MatchEntry struct {
-	Username StringOrSlice `yaml:"username"`
-	Role     string        `yaml:"role"`
-	Cmd      string        `yaml:"cmd"`
+	Username Pattern `yaml:"username"`
+	Role     string  `yaml:"role"`
+	Cmd      string  `yaml:"cmd"`
 }
 
 type RunEntry struct {
