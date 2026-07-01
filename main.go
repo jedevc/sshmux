@@ -25,8 +25,9 @@ import (
 
 // CLI defines the command-line interface parsed by Kong.
 var CLI struct {
-	Host   string `arg:"" optional:"" default:"0.0.0.0:22" help:"Address to listen on (host:port)."`
-	Config string `short:"c" required:"" help:"Path to the YAML config file."`
+	Host    string   `arg:"" optional:"" default:"0.0.0.0:22" help:"Address to listen on (host:port)."`
+	Config  string   `short:"c" required:"" help:"Path to the YAML config file."`
+	HostKey []string `help:"Path to the SSH host key."`
 }
 
 func main() {
@@ -52,9 +53,8 @@ func run() error {
 		return err
 	}
 
-	s, err := wish.NewServer(
+	opts := []ssh.Option{
 		wish.WithAddress(CLI.Host),
-		wish.WithHostKeyPath(".ssh/id_ed25519"),
 		withPtyRequests(),
 		withAuth(cfg),
 		withSessionRoutingPolicy(cfg),
@@ -62,7 +62,11 @@ func run() error {
 			muxMiddleware(cfg, providers),
 			logging.Middleware(),
 		),
-	)
+	}
+	for _, key := range CLI.HostKey {
+		opts = append(opts, ssh.HostKeyFile(key))
+	}
+	s, err := wish.NewServer(opts...)
 	if err != nil {
 		return fmt.Errorf("create server: %w", err)
 	}
