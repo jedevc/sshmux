@@ -1,33 +1,33 @@
 package main
 
 import (
-	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path"
 	"regexp"
 	"strings"
+	"time"
 
-	"gopkg.in/yaml.v3"
+	"sigs.k8s.io/yaml"
 )
 
 // StringOrSlice unmarshals either a YAML string or a YAML sequence of strings.
 type StringOrSlice []string
 
-func (s *StringOrSlice) UnmarshalYAML(value *yaml.Node) error {
-	switch value.Kind {
-	case yaml.ScalarNode:
-		*s = []string{value.Value}
-	case yaml.SequenceNode:
-		var ss []string
-		if err := value.Decode(&ss); err != nil {
-			return err
-		}
-		*s = ss
-	default:
-		return fmt.Errorf("expected string or sequence, got %v", value.Kind)
+func (s *StringOrSlice) UnmarshalJSON(data []byte) error {
+	var single string
+	if err := json.Unmarshal(data, &single); err == nil {
+		*s = []string{single}
+		return nil
 	}
-	return nil
+
+	var multiple []string
+	if err := json.Unmarshal(data, &multiple); err == nil {
+		*s = multiple
+		return nil
+	}
+	return fmt.Errorf("expected string or sequence")
 }
 
 type Pattern struct {
@@ -37,9 +37,9 @@ type Pattern struct {
 	Deny        []string
 }
 
-func (p *Pattern) UnmarshalYAML(value *yaml.Node) error {
+func (p *Pattern) UnmarshalJSON(data []byte) error {
 	var parts StringOrSlice
-	if err := parts.UnmarshalYAML(value); err != nil {
+	if err := parts.UnmarshalJSON(data); err != nil {
 		return err
 	}
 	parsed, err := parsePattern([]string(parts))
@@ -111,46 +111,74 @@ func matchGlob(pattern string, value string) bool {
 // AuthEntry matches an authentication method to a set of roles.
 type AuthEntry struct {
 	// Fingerprint is a SHA256 public-key fingerprint, e.g. "SHA256:..."
-	Fingerprint string `yaml:"fingerprint"`
+	Fingerprint string `json:"fingerprint"`
 	// Key is a raw authorized-keys-format public key.
-	Key string `yaml:"key"`
+	Key string `json:"key"`
 	// Password is a plain-text password or an nginx-style password hash.
-	Password string        `yaml:"password"`
-	Role     StringOrSlice `yaml:"role"`
+	Password string        `json:"password"`
+	Role     StringOrSlice `json:"role"`
 }
 
 type ProxyEntry struct {
-	Host     string `yaml:"host"`
-	User     string `yaml:"user"`
-	Password string `yaml:"password"`
-	Key      string `yaml:"key"`
-	HostKey  string `yaml:"host_key"`
-}
-
-type MatchEntry struct {
-	Username Pattern `yaml:"username"`
-	Role     string  `yaml:"role"`
-	Cmd      string  `yaml:"cmd"`
+	Host     string `json:"host"`
+	User     string `json:"user"`
+	Password string `json:"password"`
+	Key      string `json:"key"`
+	HostKey  string `json:"host_key"`
 }
 
 type RunEntry struct {
-	Cmd string `yaml:"cmd"`
-	Pty bool   `yaml:"pty"`
+	Cmd string `json:"cmd"`
+	Pty bool   `json:"pty"`
+}
+
+type Duration time.Duration
+
+func (d *Duration) UnmarshalJSON(data []byte) error {
+	var value string
+	if err := json.Unmarshal(data, &value); err != nil {
+		return fmt.Errorf("expected duration string")
+	}
+	if value == "" {
+		*d = 0
+		return nil
+	}
+	parsed, err := time.ParseDuration(value)
+	if err != nil {
+		return fmt.Errorf("parse duration %q: %w", value, err)
+	}
+	*d = Duration(parsed)
+	return nil
+}
+
+func (d Duration) Duration() time.Duration {
+	return time.Duration(d)
+}
+
+type CloudEntry struct {
+	Provider   string   `json:"provider"`
+	Image      string   `json:"image"`
+	Metro      string   `json:"metro"`
+	MemoryMB   int64    `json:"memory_mb"`
+	SessionTTL Duration `json:"session_ttl"`
 }
 
 // RouteEntry describes where/how to handle a matched session.
-// Either Proxy or Run must be set.
+// Exactly one of Proxy, Run, or Cloud must be set.
 type RouteEntry struct {
-	Match MatchEntry `yaml:"match"`
-	Run   RunEntry   `yaml:"run"`
+	Username Pattern  `json:"username"`
+	Role     string   `json:"role"`
+	Run      RunEntry `json:"run"`
 	// Proxy forwards the session to another SSH server.
-	Proxy ProxyEntry `yaml:"proxy"`
+	Proxy ProxyEntry `json:"proxy"`
+	// Cloud provisions a provider-backed SSH runtime for the session.
+	Cloud CloudEntry `json:"cloud"`
 }
 
 // Config is the top-level configuration structure.
 type Config struct {
-	Auth   []AuthEntry  `yaml:"auth"`
-	Routes []RouteEntry `yaml:"routes"`
+	Auth   []AuthEntry  `json:"auth"`
+	Routes []RouteEntry `json:"routes"`
 }
 
 // LoadConfig reads and parses the YAML file at path.
@@ -160,10 +188,33 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
 	var cfg Config
-	dec := yaml.NewDecoder(bytes.NewReader(data))
-	dec.KnownFields(true)
-	if err := dec.Decode(&cfg); err != nil {
+	if err := yaml.UnmarshalStrict(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
+	if err := cfg.validate(); err != nil {
+		return nil, err
+	}
 	return &cfg, nil
+}
+
+func (c *Config) validate() error {
+	for i, route := range c.Routes {
+		targets := 0
+		if route.Run.Cmd != "" {
+			targets++
+		}
+		if route.Proxy.Host != "" {
+			targets++
+		}
+		if route.Cloud.Provider != "" {
+			targets++
+		}
+		if targets != 1 {
+			return fmt.Errorf("route %d must set exactly one of run, proxy, or cloud", i)
+		}
+		if route.Cloud.Provider != "" && route.Cloud.Provider != "unikraft" {
+			return fmt.Errorf("route %d cloud provider %q is not supported", i, route.Cloud.Provider)
+		}
+	}
+	return nil
 }

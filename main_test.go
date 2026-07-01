@@ -29,8 +29,9 @@ func TestExecSimpleCmd(t *testing.T) {
 			{Fingerprint: fp, Role: StringOrSlice{"user"}},
 		},
 		Routes: []RouteEntry{{
-			Match: MatchEntry{Username: pattern("alice"), Role: "user"},
-			Run:   RunEntry{Cmd: "echo hello-world"},
+			Username: pattern("alice"),
+			Role:     "user",
+			Run:      RunEntry{Cmd: "echo hello-world"},
 		}},
 	}
 
@@ -52,8 +53,9 @@ func TestExecSimpleCmdWithPTY(t *testing.T) {
 			{Fingerprint: fp, Role: StringOrSlice{"user"}},
 		},
 		Routes: []RouteEntry{{
-			Match: MatchEntry{Username: pattern("slides"), Role: "user"},
-			Run:   RunEntry{Cmd: "printf 'slide output'"},
+			Username: pattern("slides"),
+			Role:     "user",
+			Run:      RunEntry{Cmd: "printf 'slide output'"},
 		}},
 	}
 
@@ -75,8 +77,9 @@ func TestExecConfiguredPTY(t *testing.T) {
 			{Fingerprint: fp, Role: StringOrSlice{"admin"}},
 		},
 		Routes: []RouteEntry{{
-			Match: MatchEntry{Username: pattern("editor"), Role: "admin"},
-			Run:   RunEntry{Cmd: "printf 'pty output'", Pty: true},
+			Username: pattern("editor"),
+			Role:     "admin",
+			Run:      RunEntry{Cmd: "printf 'pty output'", Pty: true},
 		}},
 	}
 
@@ -97,8 +100,8 @@ func TestExecMatchedByRawKey(t *testing.T) {
 			{Key: pubLine, Role: StringOrSlice{"user"}},
 		},
 		Routes: []RouteEntry{{
-			Match: MatchEntry{Username: pattern("bob")},
-			Run:   RunEntry{Cmd: "printf 'key-matched'"},
+			Username: pattern("bob"),
+			Run:      RunEntry{Cmd: "printf 'key-matched'"},
 		}},
 	}
 
@@ -116,8 +119,9 @@ func TestExecMatchedByPassword(t *testing.T) {
 			{Password: "secret", Role: StringOrSlice{"user"}},
 		},
 		Routes: []RouteEntry{{
-			Match: MatchEntry{Username: pattern("password-user"), Role: "user"},
-			Run:   RunEntry{Cmd: "printf 'password-matched'"},
+			Username: pattern("password-user"),
+			Role:     "user",
+			Run:      RunEntry{Cmd: "printf 'password-matched'"},
 		}},
 	}
 
@@ -135,8 +139,9 @@ func TestPasswordAuthNotAdvertisedForKeyOnlyRoute(t *testing.T) {
 			{Password: "secret", Role: StringOrSlice{"user"}},
 		},
 		Routes: []RouteEntry{{
-			Match: MatchEntry{Username: pattern("admin"), Role: "admin"},
-			Run:   RunEntry{Cmd: "printf 'admin'"},
+			Username: pattern("admin"),
+			Role:     "admin",
+			Run:      RunEntry{Cmd: "printf 'admin'"},
 		}},
 	}
 
@@ -154,8 +159,9 @@ func TestExecMatchedByHashedPassword(t *testing.T) {
 			{Password: "{SHA}5en6G6MezRroT3XKqkdPOmY/BfQ=", Role: StringOrSlice{"user"}},
 		},
 		Routes: []RouteEntry{{
-			Match: MatchEntry{Username: pattern("password-user"), Role: "user"},
-			Run:   RunEntry{Cmd: "printf 'hashed-password-matched'"},
+			Username: pattern("password-user"),
+			Role:     "user",
+			Run:      RunEntry{Cmd: "printf 'hashed-password-matched'"},
 		}},
 	}
 
@@ -177,8 +183,9 @@ func TestExecWildcardUsername(t *testing.T) {
 			{Fingerprint: fp, Role: StringOrSlice{"user"}},
 		},
 		Routes: []RouteEntry{{
-			Match: MatchEntry{Username: pattern("slide-*"), Role: "user"},
-			Run:   RunEntry{Cmd: "printf 'wildcard-matched'"},
+			Username: pattern("slide-*"),
+			Role:     "user",
+			Run:      RunEntry{Cmd: "printf 'wildcard-matched'"},
 		}},
 	}
 
@@ -200,8 +207,9 @@ func TestExecRegexUsername(t *testing.T) {
 			{Fingerprint: fp, Role: StringOrSlice{"user"}},
 		},
 		Routes: []RouteEntry{{
-			Match: MatchEntry{Username: pattern("/^deck-[0-9]+$/"), Role: "user"},
-			Run:   RunEntry{Cmd: "printf 'regex-matched'"},
+			Username: pattern("/^deck-[0-9]+$/"),
+			Role:     "user",
+			Run:      RunEntry{Cmd: "printf 'regex-matched'"},
 		}},
 	}
 
@@ -216,8 +224,8 @@ func TestExecRegexUsername(t *testing.T) {
 func TestExecNegatedUsername(t *testing.T) {
 	cfg := &Config{
 		Routes: []RouteEntry{{
-			Match: MatchEntry{Username: pattern("!admin")},
-			Run:   RunEntry{Cmd: "printf 'not-admin'"},
+			Username: pattern("!admin"),
+			Run:      RunEntry{Cmd: "printf 'not-admin'"},
 		}},
 	}
 
@@ -236,8 +244,8 @@ func TestExecNegatedUsername(t *testing.T) {
 func TestExecPublicRoute(t *testing.T) {
 	cfg := &Config{
 		Routes: []RouteEntry{{
-			Match: MatchEntry{Username: pattern("guest")},
-			Run:   RunEntry{Cmd: "echo anyone-welcome"},
+			Username: pattern("guest"),
+			Run:      RunEntry{Cmd: "echo anyone-welcome"},
 		}},
 	}
 
@@ -255,8 +263,8 @@ func TestPasswordAuthNotAdvertisedForPublicRoute(t *testing.T) {
 			{Password: "secret", Role: StringOrSlice{"user"}},
 		},
 		Routes: []RouteEntry{{
-			Match: MatchEntry{Username: pattern("guest")},
-			Run:   RunEntry{Cmd: "printf 'public'"},
+			Username: pattern("guest"),
+			Run:      RunEntry{Cmd: "printf 'public'"},
 		}},
 	}
 
@@ -278,8 +286,8 @@ func TestExecNoMatchingRoute(t *testing.T) {
 			{Fingerprint: fp, Role: StringOrSlice{"user"}},
 		},
 		Routes: []RouteEntry{{
-			Match: MatchEntry{Username: pattern("alice")},
-			Run:   RunEntry{Cmd: "echo hi"},
+			Username: pattern("alice"),
+			Run:      RunEntry{Cmd: "echo hi"},
 		}},
 	}
 
@@ -300,8 +308,9 @@ func TestExecRoleRestrictionAllowed(t *testing.T) {
 			{Fingerprint: fp, Role: StringOrSlice{"admin"}},
 		},
 		Routes: []RouteEntry{{
-			Match: MatchEntry{Username: pattern("admin"), Role: "admin"},
-			Run:   RunEntry{Cmd: "echo admin-only"},
+			Username: pattern("admin"),
+			Role:     "admin",
+			Run:      RunEntry{Cmd: "echo admin-only"},
 		}},
 	}
 
@@ -323,8 +332,9 @@ func TestExecRoleRestrictionDenied(t *testing.T) {
 			{Fingerprint: fp, Role: StringOrSlice{"user"}},
 		},
 		Routes: []RouteEntry{{
-			Match: MatchEntry{Username: pattern("admin"), Role: "admin"},
-			Run:   RunEntry{Cmd: "echo admin-only"},
+			Username: pattern("admin"),
+			Role:     "admin",
+			Run:      RunEntry{Cmd: "echo admin-only"},
 		}},
 	}
 
@@ -345,8 +355,8 @@ func TestExecCmdExitCode(t *testing.T) {
 			{Fingerprint: fp, Role: StringOrSlice{"user"}},
 		},
 		Routes: []RouteEntry{{
-			Match: MatchEntry{Username: pattern("alice")},
-			Run:   RunEntry{Cmd: "exit 42"},
+			Username: pattern("alice"),
+			Run:      RunEntry{Cmd: "exit 42"},
 		}},
 	}
 
@@ -367,8 +377,8 @@ func TestExecMultipleRoutes(t *testing.T) {
 			{Fingerprint: fp, Role: StringOrSlice{"user", "admin"}},
 		},
 		Routes: []RouteEntry{
-			{Match: MatchEntry{Username: pattern("alice"), Role: "admin"}, Run: RunEntry{Cmd: "echo first"}},
-			{Match: MatchEntry{Username: pattern("alice"), Role: "user"}, Run: RunEntry{Cmd: "echo second"}},
+			{Username: pattern("alice"), Role: "admin", Run: RunEntry{Cmd: "echo first"}},
+			{Username: pattern("alice"), Role: "user", Run: RunEntry{Cmd: "echo second"}},
 		},
 	}
 
@@ -381,7 +391,7 @@ func TestExecMultipleRoutes(t *testing.T) {
 	assert.NotContains(t, stdout, "second")
 }
 
-func TestExecCommandMatch(t *testing.T) {
+func TestUsernameRoutingIgnoresCommand(t *testing.T) {
 	dir := t.TempDir()
 	privKey, pubLine := generateKey(t, dir, "client")
 	fp := fingerprintFromPub(t, pubLine)
@@ -392,12 +402,14 @@ func TestExecCommandMatch(t *testing.T) {
 		},
 		Routes: []RouteEntry{
 			{
-				Match: MatchEntry{Username: pattern("foo"), Role: "user", Cmd: `^cmd foo\b`},
-				Run:   RunEntry{Cmd: "printf 'matched command'"},
+				Username: pattern("foo"),
+				Role:     "user",
+				Run:      RunEntry{Cmd: "printf first"},
 			},
 			{
-				Match: MatchEntry{Username: pattern("foo"), Role: "user"},
-				Run:   RunEntry{Cmd: "printf 'fallback'"},
+				Username: pattern("foo"),
+				Role:     "user",
+				Run:      RunEntry{Cmd: "printf second"},
 			},
 		},
 	}
@@ -405,70 +417,90 @@ func TestExecCommandMatch(t *testing.T) {
 	ts := newTestServer(t, cfg)
 	defer ts.stop()
 
-	stdout, _, code := sshRun(t, ts, privKey, "foo", "cmd foo bar")
+	stdout, _, code := sshRun(t, ts, privKey, "foo", "ignored-command")
 	assert.Equal(t, 0, code)
-	assert.Equal(t, "matched command", stdout)
+	assert.Equal(t, "first", stdout)
 }
 
-func TestExecCommandMismatchRejected(t *testing.T) {
+func TestProtectedCandidateRequiresAuthBeforeUsernameRouting(t *testing.T) {
 	dir := t.TempDir()
 	privKey, pubLine := generateKey(t, dir, "client")
 	fp := fingerprintFromPub(t, pubLine)
 
 	cfg := &Config{
 		Auth: []AuthEntry{
-			{Fingerprint: fp, Role: StringOrSlice{"user"}},
+			{Fingerprint: fp, Role: StringOrSlice{"admin"}},
 		},
-		Routes: []RouteEntry{{
-			Match: MatchEntry{Username: pattern("foo"), Role: "user", Cmd: `^talk$`},
-			Run:   RunEntry{Cmd: "printf 'talk'"},
-		}},
-	}
-
-	ts := newTestServer(t, cfg)
-	defer ts.stop()
-
-	_, stderr, code := sshRun(t, ts, privKey, "foo", "not-talk")
-	assert.NotEqual(t, 0, code)
-	assert.Contains(t, stderr, "exec request failed")
-}
-
-func TestPublicCommandRouteAllowsAuthThenRejectsShell(t *testing.T) {
-	cfg := &Config{
 		Routes: []RouteEntry{
 			{
-				Match: MatchEntry{Username: pattern("*"), Cmd: `^talk$`},
-				Run:   RunEntry{Cmd: "printf talk"},
+				Username: pattern("*"),
+				Run:      RunEntry{Cmd: "printf public"},
 			},
 			{
-				Match: MatchEntry{Username: pattern("admin"), Role: "admin"},
-				Run:   RunEntry{Cmd: "printf admin"},
+				Username: pattern("admin"),
+				Role:     "admin",
+				Run:      RunEntry{Cmd: "printf admin"},
 			},
 		},
 	}
 
 	ts := newTestServer(t, cfg)
 	defer ts.stop()
-
-	stdout, _, code := sshRunNoAuth(t, ts, "admin", "talk")
-	assert.Equal(t, 0, code)
-	assert.Equal(t, "talk", stdout)
 
 	_, stderr, code := sshRunNoAuth(t, ts, "admin")
 	assert.NotEqual(t, 0, code)
-	assert.Contains(t, stderr, "shell request failed")
+	assert.Contains(t, stderr, "Permission denied")
+
+	stdout, _, code := sshRun(t, ts, privKey, "admin")
+	assert.Equal(t, 0, code)
+	assert.Equal(t, "public", stdout)
+}
+
+func TestProtectedRouteBeforePublicFallbackUsesKeyRoles(t *testing.T) {
+	dir := t.TempDir()
+	privKey, pubLine := generateKey(t, dir, "client")
+	fp := fingerprintFromPub(t, pubLine)
+
+	cfg := &Config{
+		Auth: []AuthEntry{
+			{Fingerprint: fp, Role: StringOrSlice{"user", "admin"}},
+		},
+		Routes: []RouteEntry{
+			{
+				Username: pattern("nvim"),
+				Role:     "admin",
+				Run:      RunEntry{Cmd: "printf nvim"},
+			},
+			{
+				Username: pattern("!root", "!admin"),
+				Run:      RunEntry{Cmd: "printf license"},
+			},
+		},
+	}
+
+	ts := newTestServer(t, cfg)
+	defer ts.stop()
+
+	stdout, _, code := sshRun(t, ts, privKey, "nvim")
+	assert.Equal(t, 0, code)
+	assert.Equal(t, "nvim", stdout)
+
+	_, stderr, code := sshRunNoAuth(t, ts, "nvim")
+	assert.NotEqual(t, 0, code)
+	assert.Contains(t, stderr, "Permission denied")
 }
 
 func TestPrivilegedUserWithoutPublicRouteRejectedAtAuth(t *testing.T) {
 	cfg := &Config{
 		Routes: []RouteEntry{
 			{
-				Match: MatchEntry{Username: pattern("talk"), Cmd: `^talk$`},
-				Run:   RunEntry{Cmd: "printf talk"},
+				Username: pattern("talk"),
+				Run:      RunEntry{Cmd: "printf talk"},
 			},
 			{
-				Match: MatchEntry{Username: pattern("admin"), Role: "admin"},
-				Run:   RunEntry{Cmd: "printf admin"},
+				Username: pattern("admin"),
+				Role:     "admin",
+				Run:      RunEntry{Cmd: "printf admin"},
 			},
 		},
 	}
@@ -488,7 +520,7 @@ func TestProxyWithBackendPassword(t *testing.T) {
 	cfg := &Config{
 		Routes: []RouteEntry{
 			{
-				Match: MatchEntry{Username: pattern("proxy-user")},
+				Username: pattern("proxy-user"),
 				Proxy: ProxyEntry{
 					Host:     backend.addr,
 					Password: "backend-secret",
@@ -514,7 +546,7 @@ func TestProxyWithBackendKey(t *testing.T) {
 	cfg := &Config{
 		Routes: []RouteEntry{
 			{
-				Match: MatchEntry{Username: pattern("proxy-user")},
+				Username: pattern("proxy-user"),
 				Proxy: ProxyEntry{
 					Host: backend.addr,
 					Key:  proxyKey,
@@ -538,7 +570,7 @@ func TestProxyWithPinnedHostKey(t *testing.T) {
 	cfg := &Config{
 		Routes: []RouteEntry{
 			{
-				Match: MatchEntry{Username: pattern("proxy-user")},
+				Username: pattern("proxy-user"),
 				Proxy: ProxyEntry{
 					Host:     backend.addr,
 					Password: "backend-secret",
@@ -556,6 +588,74 @@ func TestProxyWithPinnedHostKey(t *testing.T) {
 	assert.Equal(t, "proxied-host-key", stdout)
 }
 
+func TestProxyRouteForwardsPTY(t *testing.T) {
+	backend := newPTYDetectBackendServer(t, backendAuth{password: "backend-secret"})
+	defer backend.stop()
+
+	cfg := &Config{
+		Routes: []RouteEntry{
+			{
+				Username: pattern("proxy-user"),
+				Proxy: ProxyEntry{
+					Host:     backend.addr,
+					Password: "backend-secret",
+				},
+			},
+		},
+	}
+
+	ts := newTestServer(t, cfg)
+	defer ts.stop()
+
+	stdout, _, code := sshRunWithOptions(t, ts, "", "proxy-user", []string{"-tt"}, "ignored")
+	assert.Equal(t, 0, code)
+	assert.Equal(t, "pty=true", stdout)
+}
+
+func TestCloudRouteForwardsPTY(t *testing.T) {
+	backend := newPTYDetectBackendServer(t, backendAuth{password: "backend-secret"})
+	defer backend.stop()
+
+	cfg := &Config{
+		Routes: []RouteEntry{
+			{
+				Username: pattern("cloud-user"),
+				Cloud:    CloudEntry{Provider: "unikraft"},
+			},
+		},
+	}
+	ts := newTestServerWithProviders(t, cfg, Providers{
+		0: testProvider{addr: backend.addr, password: "backend-secret"},
+	})
+	defer ts.stop()
+
+	stdout, _, code := sshRunWithOptions(t, ts, "", "cloud-user", []string{"-tt"}, "ignored")
+	assert.Equal(t, 0, code)
+	assert.Equal(t, "pty=true", stdout)
+}
+
+func TestCloudRouteDoesNotForwardPTYWhenCallerHasNone(t *testing.T) {
+	backend := newPTYDetectBackendServer(t, backendAuth{password: "backend-secret"})
+	defer backend.stop()
+
+	cfg := &Config{
+		Routes: []RouteEntry{
+			{
+				Username: pattern("cloud-user"),
+				Cloud:    CloudEntry{Provider: "unikraft"},
+			},
+		},
+	}
+	ts := newTestServerWithProviders(t, cfg, Providers{
+		0: testProvider{addr: backend.addr, password: "backend-secret"},
+	})
+	defer ts.stop()
+
+	stdout, _, code := sshRunNoAuth(t, ts, "cloud-user", "ignored")
+	assert.Equal(t, 0, code)
+	assert.Equal(t, "pty=false", stdout)
+}
+
 type testServer struct {
 	addr   string
 	stop   func()
@@ -565,6 +665,26 @@ type testServer struct {
 type backendAuth struct {
 	password  string
 	publicKey string
+}
+
+type testProvider struct {
+	addr     string
+	password string
+}
+
+func (p testProvider) Dial(_ context.Context, s ssh.Session) (*gossh.Client, func(), error) {
+	client, err := gossh.Dial("tcp", p.addr, &gossh.ClientConfig{
+		User: s.User(),
+		Auth: []gossh.AuthMethod{
+			gossh.Password(p.password),
+		},
+		HostKeyCallback: gossh.InsecureIgnoreHostKey(),
+		Timeout:         10 * time.Second,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return client, func() { _ = client.Close() }, nil
 }
 
 func newBackendServer(t *testing.T, auth backendAuth) *testServer {
@@ -627,7 +747,62 @@ func newBackendServer(t *testing.T, auth backendAuth) *testServer {
 	return &testServer{addr: ln.Addr().String(), stop: stop, tmpDir: tmpDir}
 }
 
+func newPTYDetectBackendServer(t *testing.T, auth backendAuth) *testServer {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	options := []ssh.Option{
+		wish.WithAddress(ln.Addr().String()),
+		wish.WithHostKeyPath(filepath.Join(tmpDir, "host_ed25519")),
+		ssh.AllocatePty(),
+		func(srv *ssh.Server) error {
+			srv.Handler = func(s ssh.Session) {
+				_, _, ok := s.Pty()
+				if ok {
+					_, _ = s.Write([]byte("pty=true"))
+				} else {
+					_, _ = s.Write([]byte("pty=false"))
+				}
+				_ = s.Exit(0)
+			}
+			return nil
+		},
+	}
+	if auth.password != "" {
+		options = append(options, wish.WithPasswordAuth(func(_ ssh.Context, password string) bool {
+			return password == auth.password
+		}))
+	}
+
+	s, err := wish.NewServer(options...)
+	if err != nil {
+		require.NoError(t, ln.Close())
+		require.NoError(t, err, "wish.NewServer")
+	}
+
+	go func() {
+		if err := s.Serve(ln); err != nil && !errors.Is(err, ssh.ErrServerClosed) {
+			_ = err
+		}
+	}()
+
+	stop := func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = s.Shutdown(ctx)
+	}
+
+	return &testServer{addr: ln.Addr().String(), stop: stop, tmpDir: tmpDir}
+}
+
 func newTestServer(t *testing.T, cfg *Config) *testServer {
+	return newTestServerWithProviders(t, cfg, nil)
+}
+
+func newTestServerWithProviders(t *testing.T, cfg *Config, providers Providers) *testServer {
 	t.Helper()
 
 	tmpDir := t.TempDir()
@@ -638,11 +813,11 @@ func newTestServer(t *testing.T, cfg *Config) *testServer {
 	s, err := wish.NewServer(
 		wish.WithAddress(ln.Addr().String()),
 		wish.WithHostKeyPath(hostKey),
-		ssh.AllocatePty(),
+		withPtyRequests(),
 		withAuth(cfg),
 		withSessionRoutingPolicy(cfg),
 		wish.WithMiddleware(
-			muxMiddleware(cfg),
+			muxMiddleware(cfg, providers),
 			logging.Middleware(),
 		),
 	)

@@ -5,10 +5,10 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
-	"regexp"
 	"slices"
 	"syscall"
 	"time"
@@ -18,6 +18,7 @@ import (
 	"charm.land/wish/v2/logging"
 	"github.com/alecthomas/kong"
 	"github.com/charmbracelet/ssh"
+	creackpty "github.com/creack/pty"
 	htpasswd "github.com/tg123/go-htpasswd"
 	gossh "golang.org/x/crypto/ssh"
 )
@@ -46,15 +47,19 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	providers, err := buildProviders(cfg)
+	if err != nil {
+		return err
+	}
 
 	s, err := wish.NewServer(
 		wish.WithAddress(CLI.Host),
 		wish.WithHostKeyPath(".ssh/id_ed25519"),
-		ssh.AllocatePty(),
+		withPtyRequests(),
 		withAuth(cfg),
 		withSessionRoutingPolicy(cfg),
 		wish.WithMiddleware(
-			muxMiddleware(cfg),
+			muxMiddleware(cfg, providers),
 			logging.Middleware(),
 		),
 	)
@@ -93,10 +98,44 @@ func run() error {
 func withSessionRoutingPolicy(cfg *Config) ssh.Option {
 	return func(srv *ssh.Server) error {
 		srv.SessionRequestCallback = func(s ssh.Session, _ string) bool {
-			return findRoute(cfg, s.User(), G(s.Context()), s.RawCommand()) != nil
+			return findRoute(cfg, s.User(), G(s.Context())) != nil
 		}
 		return nil
 	}
+}
+
+type ptyRequestKey struct {
+	session ssh.Session
+}
+
+func withPtyRequests() ssh.Option {
+	return func(srv *ssh.Server) error {
+		srv.PtyHandler = func(ctx ssh.Context, s ssh.Session, pty ssh.Pty) (func() error, error) {
+			// Proxy routes need the client's PTY metadata so it can be forwarded to
+			// the backend, but they must not allocate an intermediate PTY or use
+			// ssh.EmulatePty(), which rewrites output newlines and breaks transparent
+			// terminal proxying. Local run.pty routes allocate their own PTY later.
+			key := ptyRequestKey{session: s}
+			ctx.SetValue(key, pty)
+			return func() error {
+				ctx.SetValue(key, nil)
+				return nil
+			}, nil
+		}
+		return nil
+	}
+}
+
+func sessionPty(s ssh.Session) (ssh.Pty, <-chan ssh.Window, bool) {
+	pty, winCh, ok := s.Pty()
+	if ok {
+		return pty, winCh, true
+	}
+	pty, ok = s.Context().Value(ptyRequestKey{session: s}).(ssh.Pty)
+	if !ok {
+		return ssh.Pty{}, winCh, false
+	}
+	return pty, winCh, true
 }
 
 func withAuth(cfg *Config) ssh.Option {
@@ -118,19 +157,8 @@ func withAuth(cfg *Config) ssh.Option {
 }
 
 func authCallbacks(ctx ssh.Context, cfg *Config, username string) (gossh.ServerAuthCallbacks, bool) {
-	public := false
-	matched := false
-	for _, route := range cfg.Routes {
-		if !route.Match.Username.Match(username) {
-			continue
-		}
-		matched = true
-		if route.Match.Role == "" {
-			public = true
-			break
-		}
-	}
-	if public {
+	candidates := usernameMatchingRoutes(cfg, username)
+	if len(candidates) > 0 && routesArePublic(candidates) {
 		return gossh.ServerAuthCallbacks{}, true
 	}
 
@@ -152,10 +180,29 @@ func authCallbacks(ctx ssh.Context, cfg *Config, username string) (gossh.ServerA
 			return &gossh.Permissions{}, nil
 		}
 	}
-	if !matched {
+	if len(candidates) == 0 {
 		return callbacks, false
 	}
 	return callbacks, false
+}
+
+func usernameMatchingRoutes(cfg *Config, username string) []RouteEntry {
+	var routes []RouteEntry
+	for _, route := range cfg.Routes {
+		if route.Username.Match(username) {
+			routes = append(routes, route)
+		}
+	}
+	return routes
+}
+
+func routesArePublic(routes []RouteEntry) bool {
+	for _, route := range routes {
+		if route.Role != "" {
+			return false
+		}
+	}
+	return true
 }
 
 func publicKeyRoles(cfg *Config, key ssh.PublicKey) []string {
@@ -208,10 +255,10 @@ func passwordAllowedForUsername(cfg *Config, username string) bool {
 		return false
 	}
 	for _, route := range cfg.Routes {
-		if !route.Match.Username.Match(username) {
+		if !route.Username.Match(username) {
 			continue
 		}
-		if route.Match.Role != "" && slices.Contains(passwordRoles, route.Match.Role) {
+		if route.Role != "" && slices.Contains(passwordRoles, route.Role) {
 			return true
 		}
 	}
@@ -241,7 +288,7 @@ func matchPassword(stored string, password string) bool {
 
 func canReachRoute(cfg *Config, username string, roles []string) bool {
 	for _, route := range cfg.Routes {
-		if matchesRouteAuth(route, username, roles) {
+		if route.Username.Match(username) && routeRoleAllowed(route, roles) {
 			return true
 		}
 	}
@@ -250,18 +297,41 @@ func canReachRoute(cfg *Config, username string, roles []string) bool {
 
 // muxMiddleware returns a wish.Middleware that routes each session based on
 // the config's routes list.
-func muxMiddleware(cfg *Config) wish.Middleware {
+func muxMiddleware(cfg *Config, providerSets ...Providers) wish.Middleware {
+	providers := Providers(nil)
+	if len(providerSets) > 0 {
+		providers = providerSets[0]
+	}
 	return func(_ ssh.Handler) ssh.Handler {
 		return func(s ssh.Session) {
 			username := s.User()
 			roles := G(s.Context())
 
-			route := findRoute(cfg, username, roles, s.RawCommand())
+			route, routeIndex := findRouteIndex(cfg, username, roles)
 			if route != nil {
+				if !routeRoleAllowed(*route, roles) {
+					_, _ = fmt.Fprintf(s.Stderr(), "permission denied\r\n")
+					_ = s.Exit(1)
+					return
+				}
 				if route.Proxy.Host != "" {
 					if err := proxySession(s, *route); err != nil {
 						log.Error("Proxy error", "addr", route.Proxy.Host, "error", err)
 						_, _ = fmt.Fprintf(s.Stderr(), "proxy error: %v\r\n", err)
+						_ = s.Exit(exitCode(err))
+					}
+					return
+				}
+				if route.Cloud.Provider != "" {
+					provider := providers[routeIndex]
+					if provider == nil {
+						_, _ = fmt.Fprintf(s.Stderr(), "cloud provider is not configured\r\n")
+						_ = s.Exit(1)
+						return
+					}
+					if err := cloudSession(s, provider); err != nil {
+						log.Error("Cloud error", "provider", route.Cloud.Provider, "error", err)
+						_, _ = fmt.Fprintf(s.Stderr(), "cloud error: %v\r\n", err)
 						_ = s.Exit(exitCode(err))
 					}
 					return
@@ -282,36 +352,26 @@ func muxMiddleware(cfg *Config) wish.Middleware {
 	}
 }
 
-func findRoute(cfg *Config, username string, roles []string, rawCommand string) *RouteEntry {
+func findRoute(cfg *Config, username string, _ []string) *RouteEntry {
+	route, _ := findRouteIndex(cfg, username, nil)
+	return route
+}
+
+func findRouteIndex(cfg *Config, username string, _ []string) (*RouteEntry, int) {
 	for i := range cfg.Routes {
-		if matchesRouteSession(cfg.Routes[i], username, roles, rawCommand) {
-			return &cfg.Routes[i]
+		if matchesRouteSession(cfg.Routes[i], username) {
+			return &cfg.Routes[i], i
 		}
 	}
-	return nil
+	return nil, -1
 }
 
-func matchesRouteAuth(route RouteEntry, username string, roles []string) bool {
-	if !route.Match.Username.Match(username) {
-		return false
-	}
-	if route.Match.Role != "" && !slices.Contains(roles, route.Match.Role) {
-		return false
-	}
-	return true
+func routeRoleAllowed(route RouteEntry, roles []string) bool {
+	return route.Role == "" || slices.Contains(roles, route.Role)
 }
 
-func matchesRouteSession(route RouteEntry, username string, roles []string, rawCommand string) bool {
-	if !matchesRouteAuth(route, username, roles) {
-		return false
-	}
-	if route.Match.Cmd != "" {
-		matched, err := regexp.MatchString(route.Match.Cmd, rawCommand)
-		if err != nil || !matched {
-			return false
-		}
-	}
-	return true
+func matchesRouteSession(route RouteEntry, username string) bool {
+	return route.Username.Match(username)
 }
 
 // runCmd executes the configured command for the session.
@@ -320,22 +380,34 @@ func runCmd(s ssh.Session, command string, withPTY bool) error {
 	cmd.Env = append(os.Environ(), s.Environ()...)
 
 	if withPTY {
-		ptyReq, _, ok := s.Pty()
+		ptyReq, winCh, ok := sessionPty(s)
 		if !ok {
 			return fmt.Errorf("pty requested but client did not allocate one")
 		}
 		cmd.Env = append(cmd.Env, "TERM="+ptyReq.Term)
-		// Give the child process ownership of the PTY so full-screen apps receive
-		// terminal resize signals and behave like they were launched by sshd.
-		cmd.SysProcAttr = &syscall.SysProcAttr{
-			Setsid:  true,
-			Setctty: true,
-			Ctty:    0,
-		}
-		if err := ptyReq.Start(cmd); err != nil {
+		ptyFile, err := creackpty.StartWithSize(cmd, ptyWindowSize(ptyReq.Window))
+		if err != nil {
 			return fmt.Errorf("start pty cmd: %w", err)
 		}
-		return cmd.Wait()
+
+		done := make(chan struct{})
+		defer close(done)
+		go resizePty(ptyFile, winCh, done)
+
+		go func() {
+			_, _ = io.Copy(ptyFile, s)
+		}()
+
+		outputDone := make(chan struct{})
+		go func() {
+			defer close(outputDone)
+			_, _ = io.Copy(s, ptyFile)
+		}()
+
+		waitErr := cmd.Wait()
+		<-outputDone
+		_ = ptyFile.Close()
+		return waitErr
 	}
 
 	cmd.Stdin = s
@@ -345,6 +417,29 @@ func runCmd(s ssh.Session, command string, withPTY bool) error {
 		return fmt.Errorf("start cmd: %w", err)
 	}
 	return cmd.Wait()
+}
+
+func ptyWindowSize(win ssh.Window) *creackpty.Winsize {
+	return &creackpty.Winsize{
+		Rows: uint16(win.Height),
+		Cols: uint16(win.Width),
+		X:    uint16(win.WidthPixels),
+		Y:    uint16(win.HeightPixels),
+	}
+}
+
+func resizePty(ptyFile *os.File, winCh <-chan ssh.Window, done <-chan struct{}) {
+	for {
+		select {
+		case win, ok := <-winCh:
+			if !ok {
+				return
+			}
+			_ = creackpty.Setsize(ptyFile, ptyWindowSize(win))
+		case <-done:
+			return
+		}
+	}
 }
 
 func exitCode(err error) int {

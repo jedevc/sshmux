@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/log/v2"
 	"github.com/charmbracelet/ssh"
 	gossh "golang.org/x/crypto/ssh"
 )
@@ -16,7 +17,10 @@ func proxySession(s ssh.Session, route RouteEntry) error {
 		return err
 	}
 	defer func() { _ = client.Close() }()
+	return proxySSHSession(s, client)
+}
 
+func proxySSHSession(s ssh.Session, client *gossh.Client) error {
 	backend, err := client.NewSession()
 	if err != nil {
 		return fmt.Errorf("new backend session: %w", err)
@@ -33,7 +37,8 @@ func proxySession(s ssh.Session, route RouteEntry) error {
 		}
 	}
 
-	if pty, winCh, ok := s.Pty(); ok {
+	if pty, winCh, ok := sessionPty(s); ok {
+		log.Info("Forwarding PTY", "term", pty.Term, "height", pty.Window.Height, "width", pty.Window.Width)
 		if err := backend.RequestPty(pty.Term, pty.Window.Height, pty.Window.Width, pty.Modes); err != nil {
 			return fmt.Errorf("request backend pty: %w", err)
 		}
@@ -42,6 +47,8 @@ func proxySession(s ssh.Session, route RouteEntry) error {
 				_ = backend.WindowChange(win.Height, win.Width)
 			}
 		}()
+	} else {
+		log.Info("Forwarding without PTY")
 	}
 
 	sigCh := make(chan ssh.Signal, 16)

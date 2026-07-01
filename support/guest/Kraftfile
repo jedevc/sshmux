@@ -1,0 +1,5 @@
+spec: v0.7
+name: sshmux-guest
+runtime: base-compat:latest
+rootfs: ./Dockerfile
+cmd: ["/usr/local/bin/guest"]
