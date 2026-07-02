@@ -1,0 +1,2 @@
+beacon: offline
+last ping: 03:17 UTC

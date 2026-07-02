@@ -1,0 +1,43 @@
+/home/guest
+README.txt
+bin/
+etc/
+home/
+var/
+docs/
+notes.txt
+projects/
+Welcome to node-7, a tiny fake recovery system.
+
+Useful places:
+- /bin has the pretend system tools
+- /etc has machine configuration
+- /home/guest has your files
+- /var/log has boot notes
+node-7
+todo:
+- rotate the access code
+- inspect /var/log/boot.log
+- do not trust the blinking router
+guest
+docs/
+notes.txt
+projects/
+scratch.txt
+docs/
+notes.txt
+projects/
+b.txt
+notes.copy
+- do not trust the blinking router
+hello world
+cwd=/home/guest
+/home/guest/docs
+# Field Notes
+
+The filesystem is fake, but the commands are real enough for a tour.
+redirected
+appended
+redirected
+appended
+stdin line

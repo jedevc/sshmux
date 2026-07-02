@@ -1,0 +1,4 @@
+todo:
+- rotate the access code
+- inspect /var/log/boot.log
+- do not trust the blinking router
