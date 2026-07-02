@@ -15,7 +15,7 @@ type Config struct {
 
 type AuthEntry struct {
 	Fingerprint string        `json:"fingerprint"`
-	Key         string        `json:"key"`
+	Key         SSHKey        `json:"key"`
 	Password    string        `json:"password"`
 	Role        StringOrSlice `json:"role"`
 }
@@ -33,15 +33,15 @@ type RouteEntry struct {
 
 type RunEntry struct {
 	Cmd string `json:"cmd"`
-	Pty bool   `json:"pty"`
+	Pty *bool  `json:"pty"`
 }
 
 type ProxyEntry struct {
-	Host     string `json:"host"`
-	User     string `json:"user"`
-	Password string `json:"password"`
-	Key      string `json:"key"`
-	HostKey  string `json:"host_key"`
+	Host     string        `json:"host"`
+	User     string        `json:"user"`
+	Password string        `json:"password"`
+	Key      SSHKey        `json:"key"`
+	HostKey  StringOrSlice `json:"host_key"`
 }
 
 type CloudEntry struct {
@@ -85,6 +85,9 @@ func (c *Config) validate() error {
 		}
 		if route.Cloud.Provider != "" && route.Cloud.Provider != "unikraft" {
 			return fmt.Errorf("route %d cloud provider %q is not supported", i, route.Cloud.Provider)
+		}
+		if route.Proxy.Key.Fingerprint != "" {
+			return fmt.Errorf("route %d proxy.key must be a literal key or path, not a fingerprint", i)
 		}
 	}
 	return nil

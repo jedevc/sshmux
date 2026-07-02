@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"time"
@@ -109,7 +110,7 @@ func dialBackend(s ssh.Session, route config.RouteEntry) (*gossh.Client, error) 
 
 func proxyAuthMethods(route config.RouteEntry) ([]gossh.AuthMethod, error) {
 	var methods []gossh.AuthMethod
-	if route.Proxy.Key != "" {
+	if !route.Proxy.Key.IsZero() {
 		signer, err := proxySigner(route.Proxy.Key)
 		if err != nil {
 			return nil, err
@@ -125,31 +126,36 @@ func proxyAuthMethods(route config.RouteEntry) ([]gossh.AuthMethod, error) {
 	return methods, nil
 }
 
-func proxySigner(key string) (gossh.Signer, error) {
-	data := []byte(key)
-	if !strings.Contains(key, "-----BEGIN ") {
-		var err error
-		data, err = os.ReadFile(key)
-		if err != nil {
-			return nil, fmt.Errorf("read proxy key: %w", err)
-		}
+func proxySigner(key config.SSHKey) (gossh.Signer, error) {
+	if key.Fingerprint != "" {
+		return nil, fmt.Errorf("proxy key must be a literal key or path, not a fingerprint")
 	}
-	signer, err := gossh.ParsePrivateKey(data)
-	if err != nil {
-		return nil, fmt.Errorf("parse proxy key: %w", err)
+	if key.Signer == nil {
+		return nil, fmt.Errorf("proxy key must be a private key")
 	}
-	return signer, nil
+	return key.Signer, nil
 }
 
-func proxyHostKeyCallback(hostKey string) (gossh.HostKeyCallback, error) {
-	if hostKey == "" {
+func proxyHostKeyCallback(hostKeys []string) (gossh.HostKeyCallback, error) {
+	if len(hostKeys) == 0 {
 		return gossh.InsecureIgnoreHostKey(), nil
 	}
-	key, err := parseProxyPublicKey(hostKey)
-	if err != nil {
-		return nil, fmt.Errorf("parse proxy host key: %w", err)
+	keys := make([]gossh.PublicKey, 0, len(hostKeys))
+	for _, hostKey := range hostKeys {
+		key, err := parseProxyPublicKey(hostKey)
+		if err != nil {
+			return nil, fmt.Errorf("parse proxy host key: %w", err)
+		}
+		keys = append(keys, key)
 	}
-	return gossh.FixedHostKey(key), nil
+	return func(_ string, _ net.Addr, key gossh.PublicKey) error {
+		for _, allowed := range keys {
+			if ssh.KeysEqual(key, allowed) {
+				return nil
+			}
+		}
+		return fmt.Errorf("remote host key does not match pinned proxy host keys")
+	}, nil
 }
 
 func parseProxyPublicKey(key string) (gossh.PublicKey, error) {

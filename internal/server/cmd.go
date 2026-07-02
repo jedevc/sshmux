@@ -11,15 +11,15 @@ import (
 )
 
 // runCmd executes the configured command for the session.
-func runCmd(s ssh.Session, command string, withPTY bool) error {
+func runCmd(s ssh.Session, command string, withPTY *bool) error {
 	cmd := exec.CommandContext(s.Context(), "sh", "-c", command)
 	cmd.Env = append(os.Environ(), s.Environ()...)
 
-	if withPTY {
-		ptyReq, winCh, ok := sessionPty(s)
-		if !ok {
-			return fmt.Errorf("pty requested but client did not allocate one")
-		}
+	ptyReq, winCh, hasPTY := sessionPty(s)
+	if withPTY != nil && *withPTY && !hasPTY {
+		return fmt.Errorf("pty requested but client did not allocate one")
+	}
+	if hasPTY && (withPTY == nil || *withPTY) {
 		cmd.Env = append(cmd.Env, "TERM="+ptyReq.Term)
 		ptyFile, err := creackpty.StartWithSize(cmd, ptyWindowSize(ptyReq.Window))
 		if err != nil {

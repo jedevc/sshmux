@@ -142,7 +142,7 @@ func TestExecMatchedByRawKey(t *testing.T) {
 
 	cfg := &Config{
 		Auth: []AuthEntry{
-			{Key: pubLine, Role: StringOrSlice{"user"}},
+			{Key: sshKey(t, pubLine), Role: StringOrSlice{"user"}},
 		},
 		Routes: []RouteEntry{{
 			Username: pattern("bob"),
@@ -594,7 +594,7 @@ func TestProxyWithBackendKey(t *testing.T) {
 				Username: pattern("proxy-user"),
 				Proxy: ProxyEntry{
 					Host: backend.addr,
-					Key:  proxyKey,
+					Key:  sshKey(t, proxyKey),
 				},
 			},
 		},
@@ -936,6 +936,13 @@ func fingerprintFromPub(t *testing.T, pubLine string) string {
 	require.NoError(t, err, "parse authorized key")
 
 	return gossh.FingerprintSHA256(pk)
+}
+
+func sshKey(t *testing.T, raw string) config.SSHKey {
+	t.Helper()
+	key, err := config.ParseSSHKey(raw)
+	require.NoError(t, err, "parse ssh key")
+	return key
 }
 
 func pattern(parts ...string) Pattern {

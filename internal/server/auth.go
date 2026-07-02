@@ -87,11 +87,12 @@ func publicKeyRoles(cfg *config.Config, key ssh.PublicKey) []string {
 			roles = append(roles, auth.Role...)
 			continue
 		}
-		if auth.Key != "" {
-			allowedKey, _, _, _, err := gossh.ParseAuthorizedKey([]byte(auth.Key))
-			if err == nil && ssh.KeysEqual(key, allowedKey) {
-				roles = append(roles, auth.Role...)
-			}
+		if auth.Key.Fingerprint != "" && auth.Key.Fingerprint == fp {
+			roles = append(roles, auth.Role...)
+			continue
+		}
+		if auth.Key.PublicKey != nil && ssh.KeysEqual(key, auth.Key.PublicKey) {
+			roles = append(roles, auth.Role...)
 		}
 	}
 	return roles
