@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/charmbracelet/ssh"
 	creackpty "github.com/creack/pty"
@@ -14,6 +15,11 @@ import (
 func runCmd(s ssh.Session, command string, withPTY *bool) error {
 	cmd := exec.CommandContext(s.Context(), "sh", "-c", command)
 	cmd.Env = append(os.Environ(), s.Environ()...)
+	cmd.Env = append(cmd.Env,
+		"SSHMUX_USERNAME="+s.User(),
+		"SSHMUX_COMMAND="+s.RawCommand(),
+		"SSHMUX_ROLES="+strings.Join(RolesFromContext(s.Context()), ","),
+	)
 
 	ptyReq, winCh, hasPTY := sessionPty(s)
 	if withPTY != nil && *withPTY && !hasPTY {
