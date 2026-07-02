@@ -66,6 +66,9 @@ func run() error {
 	for _, key := range CLI.HostKey {
 		opts = append(opts, ssh.HostKeyFile(key))
 	}
+	if len(CLI.HostKey) == 0 {
+		opts = append(opts, wish.WithHostKeyPath(".ssh/id_sshmux"))
+	}
 	s, err := wish.NewServer(opts...)
 	if err != nil {
 		return fmt.Errorf("create server: %w", err)
