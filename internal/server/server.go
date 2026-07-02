@@ -43,12 +43,29 @@ func Run(opts Options) error {
 		return fmt.Errorf("create server: %w", err)
 	}
 
-	done := make(chan os.Signal, 1)
-	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
-	defer signal.Stop(done)
+	signals := make(chan os.Signal, 3)
+	shutdown := make(chan struct{})
+	signal.Notify(signals, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(signals)
 	log.Info("Starting SSH muxer", "addr", opts.Host)
 
 	serverErr := make(chan error, 1)
+	go func() {
+		count := 0
+		for range signals {
+			count++
+			switch count {
+			case 1:
+				close(shutdown)
+			case 2:
+				log.Warn("Shutdown pending; press Ctrl-C again to force close active connections")
+			default:
+				log.Warn("Force closing active connections")
+				_ = s.Close()
+				return
+			}
+		}
+	}()
 
 	go func() {
 		if err := s.ListenAndServe(); err != nil && !errors.Is(err, ssh.ErrServerClosed) {
@@ -57,7 +74,7 @@ func Run(opts Options) error {
 	}()
 
 	select {
-	case <-done:
+	case <-shutdown:
 	case err := <-serverErr:
 		return fmt.Errorf("server error: %w", err)
 	}
