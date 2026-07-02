@@ -45,11 +45,12 @@ type ProxyEntry struct {
 }
 
 type CloudEntry struct {
-	Provider   string   `json:"provider"`
-	Image      string   `json:"image"`
-	Metro      string   `json:"metro"`
-	MemoryMB   int64    `json:"memory_mb"`
-	SessionTTL Duration `json:"session_ttl"`
+	Provider     string   `json:"provider"`
+	Image        string   `json:"image"`
+	Metro        string   `json:"metro"`
+	MemoryMB     int64    `json:"memory_mb"`
+	SessionTTL   Duration `json:"session_ttl"`
+	MaxInstances int      `json:"max_instances"`
 }
 
 // Load reads and parses the YAML file at path.
@@ -85,6 +86,9 @@ func (c *Config) validate() error {
 		}
 		if route.Cloud.Provider != "" && route.Cloud.Provider != "unikraft" {
 			return fmt.Errorf("route %d cloud provider %q is not supported", i, route.Cloud.Provider)
+		}
+		if route.Cloud.MaxInstances < 0 {
+			return fmt.Errorf("route %d cloud.max_instances must be non-negative", i)
 		}
 		if route.Proxy.Key.Fingerprint != "" {
 			return fmt.Errorf("route %d proxy.key must be a literal key or path, not a fingerprint", i)

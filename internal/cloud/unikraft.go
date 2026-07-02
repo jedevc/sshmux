@@ -31,6 +31,8 @@ const (
 	unikraftDefaultImage    = "jedevc/sshmux-guest:latest"
 	unikraftDefaultMemoryMB = 32
 	unikraftDefaultIdleTTL  = time.Minute
+	unikraftInstancePrefix  = "sshmux-"
+	unikraftListLimit       = 1000
 	unikraftTLSPort         = "2222"
 	unikraftSSHPort         = 2222
 )
@@ -41,6 +43,7 @@ type UnikraftProvider struct {
 	image    string
 	memoryMB int64
 	idleTTL  time.Duration
+	maxInst  int
 	seed     [32]byte
 }
 
@@ -84,6 +87,7 @@ func NewUnikraftProvider(entry config.CloudEntry) (*UnikraftProvider, error) {
 		image:    image,
 		memoryMB: memoryMB,
 		idleTTL:  idleTTL,
+		maxInst:  entry.MaxInstances,
 		seed:     seed,
 	}
 	return provider, nil
@@ -121,6 +125,9 @@ func (p *UnikraftProvider) getOrCreate(ctx context.Context, name string, usernam
 	if inst != nil {
 		return inst, nil
 	}
+	if err := p.checkInstanceLimit(ctx); err != nil {
+		return nil, err
+	}
 
 	inst, err = p.create(ctx, name, username)
 	if err == nil {
@@ -153,6 +160,31 @@ func (p *UnikraftProvider) lookup(ctx context.Context, name string) (*unikraftIn
 		return nil, nil
 	}
 	return p.instanceFromPlatform(resp.Data.Instances[0])
+}
+
+func (p *UnikraftProvider) checkInstanceLimit(ctx context.Context) error {
+	if p.maxInst <= 0 {
+		return nil
+	}
+	count := uint32(unikraftListLimit)
+	resp, err := p.client.GetInstances(ctx, nil, platform.GetInstancesOpts{Count: &count})
+	if err != nil {
+		return fmt.Errorf("unikraft count instances: %w", err)
+	}
+	if resp == nil || resp.Data == nil {
+		return nil
+	}
+
+	total := 0
+	for _, inst := range resp.Data.Instances {
+		if strings.HasPrefix(inst.Name, unikraftInstancePrefix) {
+			total++
+		}
+	}
+	if total >= p.maxInst {
+		return fmt.Errorf("unikraft instance limit reached: %d/%d", total, p.maxInst)
+	}
+	return nil
 }
 
 func (p *UnikraftProvider) create(ctx context.Context, name string, username string) (*unikraftInstance, error) {
@@ -288,7 +320,7 @@ func unikraftDialAddr(endpoint string) (string, error) {
 
 func (p *UnikraftProvider) instanceName(username string) string {
 	sum := sha256.Sum256([]byte(strings.Join([]string{"sshmux", p.endpoint, p.image, username}, "\x00")))
-	return "sshmux-" + hex.EncodeToString(sum[:16])
+	return unikraftInstancePrefix + hex.EncodeToString(sum[:16])
 }
 
 func (p *UnikraftProvider) deriveSSHSigner(label string, name string) (gossh.Signer, error) {
