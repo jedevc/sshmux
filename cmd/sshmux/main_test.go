@@ -158,6 +158,29 @@ func TestExecMatchedByRawKey(t *testing.T) {
 	assert.Equal(t, "key-matched", stdout)
 }
 
+func TestRunCommandReceivesSSHMuxEnv(t *testing.T) {
+	dir := t.TempDir()
+	privKey, pubLine := generateKey(t, dir, "client")
+
+	cfg := &Config{
+		Auth: []AuthEntry{
+			{Key: sshKey(t, pubLine), Role: StringOrSlice{"user", "admin"}},
+		},
+		Routes: []RouteEntry{{
+			Username: pattern("bob"),
+			Role:     "user",
+			Run:      RunEntry{Cmd: `printf '%s|%s|%s' "$SSHMUX_USERNAME" "$SSHMUX_COMMAND" "$SSHMUX_ROLES"`},
+		}},
+	}
+
+	ts := newTestServer(t, cfg)
+	defer ts.stop()
+
+	stdout, _, code := sshRun(t, ts, privKey, "bob", "client command")
+	assert.Equal(t, 0, code)
+	assert.Equal(t, "bob|client command|user,admin", stdout)
+}
+
 func TestExecMatchedByPassword(t *testing.T) {
 	cfg := &Config{
 		Auth: []AuthEntry{
