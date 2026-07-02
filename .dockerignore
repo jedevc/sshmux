@@ -1,0 +1,16 @@
+.git
+.gitignore
+.dockerignore
+
+# Local secrets and deployment-specific config must not enter the build context.
+.ssh
+.env
+.env.*
+config.yaml
+
+# Local build and test artifacts.
+sshmux
+*.test
+coverage.out
+dist
+build

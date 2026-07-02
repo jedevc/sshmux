@@ -1,4 +1,4 @@
-package main
+package cloud
 
 import (
 	"cmp"
@@ -19,6 +19,8 @@ import (
 	"github.com/charmbracelet/ssh"
 	gossh "golang.org/x/crypto/ssh"
 	"unikraft.com/cloud/sdk/platform"
+
+	"sshmux/internal/config"
 )
 
 const (
@@ -29,41 +31,6 @@ const (
 	unikraftTLSPort           = "2222"
 	unikraftSSHPort           = 2222
 )
-
-type Provider interface {
-	Dial(ctx context.Context, s ssh.Session) (*gossh.Client, func(), error)
-}
-
-type Providers map[int]Provider
-
-func cloudSession(s ssh.Session, provider Provider) error {
-	client, cleanup, err := provider.Dial(s.Context(), s)
-	if err != nil {
-		return err
-	}
-	defer cleanup()
-	return proxySSHSession(s, client)
-}
-
-func buildProviders(cfg *Config) (Providers, error) {
-	providers := make(Providers)
-	for i, route := range cfg.Routes {
-		if route.Cloud.Provider == "" {
-			continue
-		}
-		switch route.Cloud.Provider {
-		case "unikraft":
-			provider, err := newUnikraftProvider(route.Cloud)
-			if err != nil {
-				return nil, fmt.Errorf("route %d unikraft provider: %w", i, err)
-			}
-			providers[i] = provider
-		default:
-			return nil, fmt.Errorf("route %d cloud provider %q is not supported", i, route.Cloud.Provider)
-		}
-	}
-	return providers, nil
-}
 
 type UnikraftProvider struct {
 	client     platform.Client
@@ -86,7 +53,7 @@ type unikraftSession struct {
 	expiresAt   *time.Time
 }
 
-func newUnikraftProvider(entry CloudEntry) (*UnikraftProvider, error) {
+func NewUnikraftProvider(entry config.CloudEntry) (*UnikraftProvider, error) {
 	token := os.Getenv("UKC_TOKEN")
 	if token == "" {
 		return nil, fmt.Errorf("UKC_TOKEN is required")

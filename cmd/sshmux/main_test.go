@@ -17,7 +17,28 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	gossh "golang.org/x/crypto/ssh"
+
+	"sshmux/internal/cloud"
+	"sshmux/internal/config"
+	"sshmux/internal/server"
 )
+
+type Config = config.Config
+type AuthEntry = config.AuthEntry
+type RouteEntry = config.RouteEntry
+type StringOrSlice = config.StringOrSlice
+type Pattern = config.Pattern
+type RunEntry = config.RunEntry
+type ProxyEntry = config.ProxyEntry
+type CloudEntry = config.CloudEntry
+type Providers = cloud.Providers
+
+var parsePattern = config.ParsePattern
+var withPtyRequests = server.WithPtyRequests
+var withAuth = server.WithAuth
+var withSessionRoutingPolicy = server.WithSessionRoutingPolicy
+var muxMiddleware = server.MuxMiddleware
+var exitCode = server.ExitCode
 
 func TestExecSimpleCmd(t *testing.T) {
 	dir := t.TempDir()
@@ -79,7 +100,7 @@ func TestExecConfiguredPTY(t *testing.T) {
 		Routes: []RouteEntry{{
 			Username: pattern("editor"),
 			Role:     "admin",
-			Run:      RunEntry{Cmd: "printf 'pty output'", Pty: true},
+			Run:      RunEntry{Cmd: "printf 'pty output'", Pty: boolPtr(true)},
 		}},
 	}
 
@@ -89,6 +110,30 @@ func TestExecConfiguredPTY(t *testing.T) {
 	stdout, _, code := sshRunPTY(t, ts, privKey, "editor")
 	assert.Equal(t, 0, code)
 	assert.Contains(t, stdout, "pty output")
+}
+
+func TestExecConfiguredNoPTYIgnoresClientPTY(t *testing.T) {
+	dir := t.TempDir()
+	privKey, pubLine := generateKey(t, dir, "client")
+	fp := fingerprintFromPub(t, pubLine)
+
+	cfg := &Config{
+		Auth: []AuthEntry{
+			{Fingerprint: fp, Role: StringOrSlice{"admin"}},
+		},
+		Routes: []RouteEntry{{
+			Username: pattern("plain"),
+			Role:     "admin",
+			Run:      RunEntry{Cmd: "if [ -t 0 ]; then printf pty; else printf no-pty; fi", Pty: boolPtr(false)},
+		}},
+	}
+
+	ts := newTestServer(t, cfg)
+	defer ts.stop()
+
+	stdout, _, code := sshRunPTY(t, ts, privKey, "plain")
+	assert.Equal(t, 0, code)
+	assert.Equal(t, "no-pty", stdout)
 }
 
 func TestExecMatchedByRawKey(t *testing.T) {
@@ -574,7 +619,7 @@ func TestProxyWithPinnedHostKey(t *testing.T) {
 				Proxy: ProxyEntry{
 					Host:     backend.addr,
 					Password: "backend-secret",
-					HostKey:  filepath.Join(backend.tmpDir, "host_ed25519.pub"),
+					HostKey:  StringOrSlice{filepath.Join(backend.tmpDir, "host_ed25519.pub")},
 				},
 			},
 		},
@@ -586,6 +631,35 @@ func TestProxyWithPinnedHostKey(t *testing.T) {
 	stdout, _, code := sshRunNoAuth(t, ts, "proxy-user", "printf proxied-host-key")
 	assert.Equal(t, 0, code)
 	assert.Equal(t, "proxied-host-key", stdout)
+}
+
+func TestProxyWithMultiplePinnedHostKeys(t *testing.T) {
+	backend := newBackendServer(t, backendAuth{password: "backend-secret"})
+	defer backend.stop()
+	_, decoyPub := generateKey(t, backend.tmpDir, "decoy_ed25519")
+
+	cfg := &Config{
+		Routes: []RouteEntry{
+			{
+				Username: pattern("proxy-user"),
+				Proxy: ProxyEntry{
+					Host:     backend.addr,
+					Password: "backend-secret",
+					HostKey: StringOrSlice{
+						decoyPub,
+						filepath.Join(backend.tmpDir, "host_ed25519.pub"),
+					},
+				},
+			},
+		},
+	}
+
+	ts := newTestServer(t, cfg)
+	defer ts.stop()
+
+	stdout, _, code := sshRunNoAuth(t, ts, "proxy-user", "printf proxied-host-keys")
+	assert.Equal(t, 0, code)
+	assert.Equal(t, "proxied-host-keys", stdout)
 }
 
 func TestProxyRouteForwardsPTY(t *testing.T) {
@@ -870,6 +944,10 @@ func pattern(parts ...string) Pattern {
 		panic(err)
 	}
 	return pattern
+}
+
+func boolPtr(value bool) *bool {
+	return &value
 }
 
 func sshRun(t *testing.T, ts *testServer, privKey, user string, remoteArgs ...string) (stdout, stderr string, code int) {

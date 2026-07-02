@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"fmt"
@@ -9,9 +9,21 @@ import (
 	"charm.land/log/v2"
 	"github.com/charmbracelet/ssh"
 	gossh "golang.org/x/crypto/ssh"
+
+	"sshmux/internal/cloud"
+	"sshmux/internal/config"
 )
 
-func proxySession(s ssh.Session, route RouteEntry) error {
+func cloudSession(s ssh.Session, provider cloud.Provider) error {
+	client, cleanup, err := provider.Dial(s.Context(), s)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	return proxySSHSession(s, client)
+}
+
+func proxySession(s ssh.Session, route config.RouteEntry) error {
 	client, err := dialBackend(s, route)
 	if err != nil {
 		return err
@@ -70,7 +82,7 @@ func proxySSHSession(s ssh.Session, client *gossh.Client) error {
 	return backend.Wait()
 }
 
-func dialBackend(s ssh.Session, route RouteEntry) (*gossh.Client, error) {
+func dialBackend(s ssh.Session, route config.RouteEntry) (*gossh.Client, error) {
 	user := route.Proxy.User
 	if user == "" {
 		user = s.User()
@@ -95,7 +107,7 @@ func dialBackend(s ssh.Session, route RouteEntry) (*gossh.Client, error) {
 	return client, nil
 }
 
-func proxyAuthMethods(route RouteEntry) ([]gossh.AuthMethod, error) {
+func proxyAuthMethods(route config.RouteEntry) ([]gossh.AuthMethod, error) {
 	var methods []gossh.AuthMethod
 	if route.Proxy.Key != "" {
 		signer, err := proxySigner(route.Proxy.Key)

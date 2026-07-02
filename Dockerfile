@@ -4,10 +4,10 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/root/go/pkg/mod \
     go mod download
-COPY *.go ./
+COPY . ./
 RUN --mount=type=cache,target=/root/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/sshmux .
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/sshmux ./cmd/sshmux
 
 FROM alpine:3.21
 RUN apk add --no-cache libcap && adduser -D -s /bin/sh user
