@@ -4,15 +4,18 @@ import (
 	"cmp"
 	"context"
 	"crypto/ed25519"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/pem"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
-	"sync"
+	"strings"
 	"time"
 
 	"charm.land/log/v2"
@@ -24,33 +27,29 @@ import (
 )
 
 const (
-	unikraftDefaultMetro      = "fra0"
-	unikraftDefaultImage      = "jedevc/sshmux-guest:latest"
-	unikraftDefaultMemoryMB   = 128
-	unikraftDefaultSessionTTL = time.Minute
-	unikraftTLSPort           = "2222"
-	unikraftSSHPort           = 2222
+	unikraftDefaultMetro    = "fra"
+	unikraftDefaultImage    = "jedevc/sshmux-guest:latest"
+	unikraftDefaultMemoryMB = 32
+	unikraftDefaultIdleTTL  = time.Minute
+	unikraftTLSPort         = "2222"
+	unikraftSSHPort         = 2222
 )
 
 type UnikraftProvider struct {
-	client     platform.Client
-	endpoint   string
-	image      string
-	memoryMB   int64
-	sessionTTL time.Duration
-
-	mu       sync.Mutex
-	sessions map[string]*unikraftSession
+	client   platform.Client
+	endpoint string
+	image    string
+	memoryMB int64
+	idleTTL  time.Duration
+	seed     [32]byte
 }
 
-type unikraftSession struct {
-	uuid        string
-	fqdn        string
-	dialAddr    string
-	hostKey     gossh.PublicKey
-	authKey     gossh.Signer
-	connections int
-	expiresAt   *time.Time
+type unikraftInstance struct {
+	uuid     string
+	fqdn     string
+	dialAddr string
+	hostKey  gossh.PublicKey
+	authKey  gossh.Signer
 }
 
 func NewUnikraftProvider(entry config.CloudEntry) (*UnikraftProvider, error) {
@@ -65,9 +64,14 @@ func NewUnikraftProvider(entry config.CloudEntry) (*UnikraftProvider, error) {
 	if memoryMB == 0 {
 		memoryMB = unikraftDefaultMemoryMB
 	}
-	sessionTTL := entry.SessionTTL.Duration()
-	if sessionTTL == 0 {
-		sessionTTL = unikraftDefaultSessionTTL
+	idleTTL := entry.SessionTTL.Duration()
+	if idleTTL == 0 {
+		idleTTL = unikraftDefaultIdleTTL
+	}
+
+	var seed [32]byte
+	if _, err := rand.Read(seed[:]); err != nil {
+		return nil, fmt.Errorf("generate unikraft provider seed: %w", err)
 	}
 
 	provider := &UnikraftProvider{
@@ -76,111 +80,89 @@ func NewUnikraftProvider(entry config.CloudEntry) (*UnikraftProvider, error) {
 			platform.WithDefaultMetro(metro),
 			platform.WithHTTPClient(http.DefaultClient),
 		),
-		endpoint:   platform.EndpointForMetro(metro),
-		image:      image,
-		memoryMB:   memoryMB,
-		sessionTTL: sessionTTL,
-		sessions:   make(map[string]*unikraftSession),
+		endpoint: platform.EndpointForMetro(metro),
+		image:    image,
+		memoryMB: memoryMB,
+		idleTTL:  idleTTL,
+		seed:     seed,
 	}
-	go provider.reap()
 	return provider, nil
 }
 
 func (p *UnikraftProvider) Dial(ctx context.Context, s ssh.Session) (*gossh.Client, func(), error) {
 	username := s.User()
+	name := p.instanceName(username)
 	var lastErr error
 	for attempt := 0; attempt < 2; attempt++ {
-		session, release, err := p.attach(ctx, username)
+		inst, err := p.getOrCreate(ctx, name, username)
 		if err != nil {
 			return nil, nil, err
 		}
 
-		client, err := session.sshClient(ctx, username)
+		client, err := inst.sshClient(ctx, username)
 		if err != nil {
-			release()
-			p.removeIfSame(username, session)
 			lastErr = err
 			continue
 		}
 
 		cleanup := func() {
 			_ = client.Close()
-			release()
 		}
 		return client, cleanup, nil
 	}
 	return nil, nil, lastErr
 }
 
-func (p *UnikraftProvider) attach(ctx context.Context, username string) (*unikraftSession, func(), error) {
-	var discard *unikraftSession
-
-	p.mu.Lock()
-	session, ok := p.sessions[username]
-	if !ok {
-		p.mu.Unlock()
-
-		created, err := p.create(ctx, username)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		p.mu.Lock()
-		if existing, raced := p.sessions[username]; raced {
-			session = existing
-			discard = created
-		} else {
-			session = created
-			p.sessions[username] = session
-		}
-	}
-
-	session.connections++
-	session.expiresAt = nil
-	p.mu.Unlock()
-	if discard != nil {
-		log.Warn("unikraft: raced instance created; leaving it to guest idle timeout", "uuid", discard.uuid)
-	}
-
-	released := false
-	release := func() {
-		if released {
-			return
-		}
-		released = true
-
-		p.mu.Lock()
-		defer p.mu.Unlock()
-
-		current, ok := p.sessions[username]
-		if !ok {
-			return
-		}
-		current.connections--
-		if current.connections <= 0 {
-			current.connections = 0
-			expiresAt := time.Now().Add(p.sessionTTL)
-			current.expiresAt = &expiresAt
-			log.Info("unikraft: session idle", "user", username, "expires_at", expiresAt)
-		}
-	}
-
-	return session, release, nil
-}
-
-func (p *UnikraftProvider) create(ctx context.Context, username string) (*unikraftSession, error) {
-	dialAddr, err := unikraftDialAddr(p.endpoint)
+func (p *UnikraftProvider) getOrCreate(ctx context.Context, name string, username string) (*unikraftInstance, error) {
+	inst, err := p.lookup(ctx, name)
 	if err != nil {
 		return nil, err
 	}
-
-	hostKey, hostKeyPEM, err := generateHostKey()
-	if err != nil {
-		return nil, fmt.Errorf("generate guest host key: %w", err)
+	if inst != nil {
+		return inst, nil
 	}
-	authKey, err := generateSSHSigner()
+
+	inst, err = p.create(ctx, name, username)
+	if err == nil {
+		return inst, nil
+	}
+	if !platform.ErrorContains(err, platform.APIHTTPErrorAlreadyExists) {
+		return nil, err
+	}
+
+	inst, lookupErr := p.lookup(ctx, name)
+	if lookupErr != nil {
+		return nil, lookupErr
+	}
+	if inst == nil {
+		return nil, err
+	}
+	return inst, nil
+}
+
+func (p *UnikraftProvider) lookup(ctx context.Context, name string) (*unikraftInstance, error) {
+	details := true
+	resp, err := p.client.GetInstances(ctx, []platform.NameOrUUID{{Name: &name}}, platform.GetInstancesOpts{Details: &details})
 	if err != nil {
-		return nil, fmt.Errorf("generate guest auth key: %w", err)
+		if platform.ErrorContains(err, platform.APIHTTPErrorNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("unikraft get instance %s: %w", name, err)
+	}
+	if resp == nil || resp.Data == nil || len(resp.Data.Instances) == 0 {
+		return nil, nil
+	}
+	return p.instanceFromPlatform(resp.Data.Instances[0])
+}
+
+func (p *UnikraftProvider) create(ctx context.Context, name string, username string) (*unikraftInstance, error) {
+	_, hostKeyPEM, err := p.deriveHostKey(name)
+	if err != nil {
+		return nil, fmt.Errorf("derive guest host key: %w", err)
+	}
+	authKey, err := p.deriveSSHSigner("auth", name)
+	if err != nil {
+		return nil, fmt.Errorf("derive guest auth key: %w", err)
 	}
 	allowKey := string(gossh.MarshalAuthorizedKey(authKey.PublicKey()))
 
@@ -189,6 +171,7 @@ func (p *UnikraftProvider) create(ctx context.Context, username string) (*unikra
 	port := uint32(unikraftSSHPort)
 	timeoutS := int64(-1)
 	resp, err := p.client.CreateInstance(ctx, platform.CreateInstanceRequest{
+		Name:      &name,
 		Image:     &p.image,
 		MemoryMb:  &memoryMB,
 		Autostart: &autostart,
@@ -196,7 +179,7 @@ func (p *UnikraftProvider) create(ctx context.Context, username string) (*unikra
 		Env: map[string]string{
 			"GUEST_HOST_KEY":     hostKeyPEM,
 			"GUEST_ALLOW_KEY":    allowKey,
-			"GUEST_IDLE_TIMEOUT": p.sessionTTL.String(),
+			"GUEST_IDLE_TIMEOUT": p.idleTTL.String(),
 		},
 		Features: []platform.InstanceFeature{platform.InstanceFeatureDeleteOnStop},
 		ServiceGroup: &platform.CreateInstanceRequestServiceGroup{
@@ -212,11 +195,17 @@ func (p *UnikraftProvider) create(ctx context.Context, username string) (*unikra
 	if err != nil {
 		return nil, fmt.Errorf("unikraft create instance: %w", err)
 	}
-	if len(resp.Data.Instances) == 0 {
+	if resp == nil || resp.Data == nil || len(resp.Data.Instances) == 0 {
 		return nil, fmt.Errorf("unikraft create instance: empty response")
 	}
 
 	inst := resp.Data.Instances[0]
+	time.Sleep(500 * time.Millisecond)
+	log.Info("unikraft: instance created", "user", username, "name", name, "uuid", inst.Uuid)
+	return p.instanceFromPlatform(inst)
+}
+
+func (p *UnikraftProvider) instanceFromPlatform(inst platform.Instance) (*unikraftInstance, error) {
 	if inst.ServiceGroup == nil || len(inst.ServiceGroup.Domains) == 0 {
 		return nil, fmt.Errorf("unikraft instance %s has no service group domains", inst.Uuid)
 	}
@@ -224,10 +213,19 @@ func (p *UnikraftProvider) create(ctx context.Context, username string) (*unikra
 	if fqdn == "" {
 		return nil, fmt.Errorf("unikraft instance %s service group domain FQDN is empty", inst.Uuid)
 	}
-
-	time.Sleep(500 * time.Millisecond)
-	log.Info("unikraft: instance created", "user", username, "uuid", inst.Uuid, "fqdn", fqdn)
-	return &unikraftSession{
+	dialAddr, err := unikraftDialAddr(p.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	hostKey, _, err := p.deriveHostKey(inst.Name)
+	if err != nil {
+		return nil, fmt.Errorf("derive guest host key: %w", err)
+	}
+	authKey, err := p.deriveSSHSigner("auth", inst.Name)
+	if err != nil {
+		return nil, fmt.Errorf("derive guest auth key: %w", err)
+	}
+	return &unikraftInstance{
 		uuid:     inst.Uuid,
 		fqdn:     fqdn,
 		dialAddr: dialAddr,
@@ -236,42 +234,7 @@ func (p *UnikraftProvider) create(ctx context.Context, username string) (*unikra
 	}, nil
 }
 
-func (p *UnikraftProvider) reap() {
-	ticker := time.NewTicker(15 * time.Second)
-	defer ticker.Stop()
-	for range ticker.C {
-		p.reapOnce()
-	}
-}
-
-func (p *UnikraftProvider) reapOnce() {
-	now := time.Now()
-	expired := make(map[string]*unikraftSession)
-
-	p.mu.Lock()
-	for username, session := range p.sessions {
-		if session.connections == 0 && session.expiresAt != nil && now.After(*session.expiresAt) {
-			expired[username] = session
-			delete(p.sessions, username)
-		}
-	}
-	p.mu.Unlock()
-
-	for username, session := range expired {
-		log.Info("unikraft: dropping idle instance from cache", "user", username, "uuid", session.uuid)
-	}
-}
-
-func (p *UnikraftProvider) removeIfSame(username string, session *unikraftSession) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.sessions[username] == session {
-		delete(p.sessions, username)
-		log.Info("unikraft: dropping stale instance from cache", "user", username, "uuid", session.uuid)
-	}
-}
-
-func (s *unikraftSession) sshClient(ctx context.Context, username string) (*gossh.Client, error) {
+func (s *unikraftInstance) sshClient(ctx context.Context, username string) (*gossh.Client, error) {
 	conn, err := s.dial(ctx)
 	if err != nil {
 		return nil, err
@@ -291,7 +254,7 @@ func (s *unikraftSession) sshClient(ctx context.Context, username string) (*goss
 	return gossh.NewClient(sshConn, chans, reqs), nil
 }
 
-func (s *unikraftSession) dial(ctx context.Context) (net.Conn, error) {
+func (s *unikraftInstance) dial(ctx context.Context) (net.Conn, error) {
 	dialer := &tls.Dialer{
 		NetDialer: &net.Dialer{},
 		Config: &tls.Config{
@@ -323,19 +286,23 @@ func unikraftDialAddr(endpoint string) (string, error) {
 	return net.JoinHostPort(dialHost, dialPort), nil
 }
 
-func generateSSHSigner() (gossh.Signer, error) {
-	_, privKey, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return nil, err
-	}
-	return gossh.NewSignerFromKey(privKey)
+func (p *UnikraftProvider) instanceName(username string) string {
+	sum := sha256.Sum256([]byte(strings.Join([]string{"sshmux", p.endpoint, p.image, username}, "\x00")))
+	return "sshmux-" + hex.EncodeToString(sum[:16])
 }
 
-func generateHostKey() (gossh.PublicKey, string, error) {
-	_, privKey, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return nil, "", err
-	}
+func (p *UnikraftProvider) deriveSSHSigner(label string, name string) (gossh.Signer, error) {
+	mac := hmac.New(sha256.New, p.seed[:])
+	_, _ = mac.Write([]byte("sshmux/unikraft/" + label + "/" + name))
+	seed := mac.Sum(nil)
+	return gossh.NewSignerFromKey(ed25519.NewKeyFromSeed(seed[:ed25519.SeedSize]))
+}
+
+func (p *UnikraftProvider) deriveHostKey(name string) (gossh.PublicKey, string, error) {
+	mac := hmac.New(sha256.New, p.seed[:])
+	_, _ = mac.Write([]byte("sshmux/unikraft/host/" + name))
+	seed := mac.Sum(nil)
+	privKey := ed25519.NewKeyFromSeed(seed[:ed25519.SeedSize])
 	signer, err := gossh.NewSignerFromKey(privKey)
 	if err != nil {
 		return nil, "", err
