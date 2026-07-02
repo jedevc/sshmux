@@ -32,7 +32,8 @@ const (
 	unikraftDefaultMemoryMB = 32
 	unikraftDefaultIdleTTL  = time.Minute
 	unikraftInstancePrefix  = "sshmux-"
-	unikraftListLimit       = 1000
+	unikraftReadyTimeout    = 30 * time.Second
+	unikraftReadyBackoff    = 500 * time.Millisecond
 	unikraftTLSPort         = "2222"
 	unikraftSSHPort         = 2222
 )
@@ -96,8 +97,11 @@ func NewUnikraftProvider(entry config.CloudEntry) (*UnikraftProvider, error) {
 func (p *UnikraftProvider) Dial(ctx context.Context, s ssh.Session) (*gossh.Client, func(), error) {
 	username := s.User()
 	name := p.instanceName(username)
+	deadline := time.NewTimer(unikraftReadyTimeout)
+	defer deadline.Stop()
+
 	var lastErr error
-	for attempt := 0; attempt < 2; attempt++ {
+	for {
 		inst, err := p.getOrCreate(ctx, name, username)
 		if err != nil {
 			return nil, nil, err
@@ -106,6 +110,16 @@ func (p *UnikraftProvider) Dial(ctx context.Context, s ssh.Session) (*gossh.Clie
 		client, err := inst.sshClient(ctx, username)
 		if err != nil {
 			lastErr = err
+			if !isRetryableUnikraftDial(err) {
+				return nil, nil, err
+			}
+			select {
+			case <-ctx.Done():
+				return nil, nil, fmt.Errorf("wait for unikraft guest ssh: %w", ctx.Err())
+			case <-deadline.C:
+				return nil, nil, lastErr
+			case <-time.After(unikraftReadyBackoff):
+			}
 			continue
 		}
 
@@ -114,7 +128,6 @@ func (p *UnikraftProvider) Dial(ctx context.Context, s ssh.Session) (*gossh.Clie
 		}
 		return client, cleanup, nil
 	}
-	return nil, nil, lastErr
 }
 
 func (p *UnikraftProvider) getOrCreate(ctx context.Context, name string, username string) (*unikraftInstance, error) {
@@ -166,8 +179,7 @@ func (p *UnikraftProvider) checkInstanceLimit(ctx context.Context) error {
 	if p.maxInst <= 0 {
 		return nil
 	}
-	count := uint32(unikraftListLimit)
-	resp, err := p.client.GetInstances(ctx, nil, platform.GetInstancesOpts{Count: &count})
+	resp, err := p.client.GetInstances(ctx, nil, platform.GetInstancesOpts{})
 	if err != nil {
 		return fmt.Errorf("unikraft count instances: %w", err)
 	}
@@ -232,7 +244,6 @@ func (p *UnikraftProvider) create(ctx context.Context, name string, username str
 	}
 
 	inst := resp.Data.Instances[0]
-	time.Sleep(500 * time.Millisecond)
 	log.Info("unikraft: instance created", "user", username, "name", name, "uuid", inst.Uuid)
 	return p.instanceFromPlatform(inst)
 }
@@ -300,6 +311,13 @@ func (s *unikraftInstance) dial(ctx context.Context) (net.Conn, error) {
 		return nil, fmt.Errorf("tls dial unikraft endpoint %s (sni=%s): %w", s.dialAddr, s.fqdn, err)
 	}
 	return conn, nil
+}
+
+func isRetryableUnikraftDial(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "EOF") ||
+		strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "connection reset")
 }
 
 func unikraftDialAddr(endpoint string) (string, error) {
