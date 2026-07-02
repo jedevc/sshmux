@@ -17,14 +17,11 @@ type cli struct {
 
 func main() {
 	var cli cli
-	ctx := kong.Parse(&cli,
+	kong.Parse(&cli,
 		kong.Name("hello-world-shell"),
 		kong.Description("A tiny hello-world shell."),
 		kong.UsageOnError(),
 	)
-	if cli.Command == "" && !cli.Interactive {
-		ctx.FatalIfErrorf(fmt.Errorf("one of -c or -i is required"))
-	}
 
 	sh := newShell(newWriteFS(newEmbedFS()), os.Stdin, os.Stdout, os.Stderr)
 
@@ -34,7 +31,7 @@ func main() {
 		}
 	}
 
-	if cli.Interactive {
+	if cli.Interactive || cli.Command == "" {
 		if err := runInteractive(sh, os.Stdin); err != nil {
 			fatalf("%v", err)
 		}
