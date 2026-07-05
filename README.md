@@ -1,3 +1,5 @@
+![](./docs/sshmux-banner.jpg)
+
 # sshmux
 
 `sshmux` is a small SSH multiplexer. It terminates an incoming SSH connection,
