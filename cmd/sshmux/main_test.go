@@ -47,7 +47,7 @@ func TestExecSimpleCmd(t *testing.T) {
 
 	cfg := &Config{
 		Auth: []AuthEntry{
-			{Fingerprint: fp, Role: StringOrSlice{"user"}},
+			{Key: sshKey(t, fp), Role: StringOrSlice{"user"}},
 		},
 		Routes: []RouteEntry{{
 			Username: pattern("alice"),
@@ -71,7 +71,7 @@ func TestExecSimpleCmdWithPTY(t *testing.T) {
 
 	cfg := &Config{
 		Auth: []AuthEntry{
-			{Fingerprint: fp, Role: StringOrSlice{"user"}},
+			{Key: sshKey(t, fp), Role: StringOrSlice{"user"}},
 		},
 		Routes: []RouteEntry{{
 			Username: pattern("slides"),
@@ -95,7 +95,7 @@ func TestExecConfiguredPTY(t *testing.T) {
 
 	cfg := &Config{
 		Auth: []AuthEntry{
-			{Fingerprint: fp, Role: StringOrSlice{"admin"}},
+			{Key: sshKey(t, fp), Role: StringOrSlice{"admin"}},
 		},
 		Routes: []RouteEntry{{
 			Username: pattern("editor"),
@@ -119,7 +119,7 @@ func TestExecConfiguredNoPTYIgnoresClientPTY(t *testing.T) {
 
 	cfg := &Config{
 		Auth: []AuthEntry{
-			{Fingerprint: fp, Role: StringOrSlice{"admin"}},
+			{Key: sshKey(t, fp), Role: StringOrSlice{"admin"}},
 		},
 		Routes: []RouteEntry{{
 			Username: pattern("plain"),
@@ -248,7 +248,7 @@ func TestExecWildcardUsername(t *testing.T) {
 
 	cfg := &Config{
 		Auth: []AuthEntry{
-			{Fingerprint: fp, Role: StringOrSlice{"user"}},
+			{Key: sshKey(t, fp), Role: StringOrSlice{"user"}},
 		},
 		Routes: []RouteEntry{{
 			Username: pattern("slide-*"),
@@ -272,7 +272,7 @@ func TestExecRegexUsername(t *testing.T) {
 
 	cfg := &Config{
 		Auth: []AuthEntry{
-			{Fingerprint: fp, Role: StringOrSlice{"user"}},
+			{Key: sshKey(t, fp), Role: StringOrSlice{"user"}},
 		},
 		Routes: []RouteEntry{{
 			Username: pattern("/^deck-[0-9]+$/"),
@@ -351,7 +351,7 @@ func TestExecNoMatchingRoute(t *testing.T) {
 
 	cfg := &Config{
 		Auth: []AuthEntry{
-			{Fingerprint: fp, Role: StringOrSlice{"user"}},
+			{Key: sshKey(t, fp), Role: StringOrSlice{"user"}},
 		},
 		Routes: []RouteEntry{{
 			Username: pattern("alice"),
@@ -373,7 +373,7 @@ func TestExecRoleRestrictionAllowed(t *testing.T) {
 
 	cfg := &Config{
 		Auth: []AuthEntry{
-			{Fingerprint: fp, Role: StringOrSlice{"admin"}},
+			{Key: sshKey(t, fp), Role: StringOrSlice{"admin"}},
 		},
 		Routes: []RouteEntry{{
 			Username: pattern("admin"),
@@ -397,7 +397,7 @@ func TestExecRoleRestrictionDenied(t *testing.T) {
 
 	cfg := &Config{
 		Auth: []AuthEntry{
-			{Fingerprint: fp, Role: StringOrSlice{"user"}},
+			{Key: sshKey(t, fp), Role: StringOrSlice{"user"}},
 		},
 		Routes: []RouteEntry{{
 			Username: pattern("admin"),
@@ -420,7 +420,7 @@ func TestExecCmdExitCode(t *testing.T) {
 
 	cfg := &Config{
 		Auth: []AuthEntry{
-			{Fingerprint: fp, Role: StringOrSlice{"user"}},
+			{Key: sshKey(t, fp), Role: StringOrSlice{"user"}},
 		},
 		Routes: []RouteEntry{{
 			Username: pattern("alice"),
@@ -442,7 +442,7 @@ func TestExecMultipleRoutes(t *testing.T) {
 
 	cfg := &Config{
 		Auth: []AuthEntry{
-			{Fingerprint: fp, Role: StringOrSlice{"user", "admin"}},
+			{Key: sshKey(t, fp), Role: StringOrSlice{"user", "admin"}},
 		},
 		Routes: []RouteEntry{
 			{Username: pattern("alice"), Role: "admin", Run: RunEntry{Cmd: "echo first"}},
@@ -466,7 +466,7 @@ func TestUsernameRoutingIgnoresCommand(t *testing.T) {
 
 	cfg := &Config{
 		Auth: []AuthEntry{
-			{Fingerprint: fp, Role: StringOrSlice{"user"}},
+			{Key: sshKey(t, fp), Role: StringOrSlice{"user"}},
 		},
 		Routes: []RouteEntry{
 			{
@@ -497,7 +497,7 @@ func TestProtectedCandidateRequiresAuthBeforeUsernameRouting(t *testing.T) {
 
 	cfg := &Config{
 		Auth: []AuthEntry{
-			{Fingerprint: fp, Role: StringOrSlice{"admin"}},
+			{Key: sshKey(t, fp), Role: StringOrSlice{"admin"}},
 		},
 		Routes: []RouteEntry{
 			{
@@ -531,7 +531,7 @@ func TestProtectedRouteBeforePublicFallbackUsesKeyRoles(t *testing.T) {
 
 	cfg := &Config{
 		Auth: []AuthEntry{
-			{Fingerprint: fp, Role: StringOrSlice{"user", "admin"}},
+			{Key: sshKey(t, fp), Role: StringOrSlice{"user", "admin"}},
 		},
 		Routes: []RouteEntry{
 			{

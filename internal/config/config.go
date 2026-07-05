@@ -14,7 +14,6 @@ type Config struct {
 }
 
 type AuthEntry struct {
-	Fingerprint string        `json:"fingerprint"`
 	Key         SSHKey        `json:"key"`
 	Password    string        `json:"password"`
 	Role        StringOrSlice `json:"role"`

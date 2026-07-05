@@ -83,10 +83,6 @@ func publicKeyRoles(cfg *config.Config, key ssh.PublicKey) []string {
 	fp := gossh.FingerprintSHA256(key)
 	var roles []string
 	for _, auth := range cfg.Auth {
-		if auth.Fingerprint != "" && auth.Fingerprint == fp {
-			roles = append(roles, auth.Role...)
-			continue
-		}
 		if auth.Key.Fingerprint != "" && auth.Key.Fingerprint == fp {
 			roles = append(roles, auth.Role...)
 			continue
